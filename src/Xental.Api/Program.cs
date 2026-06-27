@@ -1,4 +1,6 @@
 using Microsoft.OpenApi;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Serilog;
 using Xental.Application;
 using Xental.Infrastructure;
@@ -31,6 +33,23 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 // Health checks.
 builder.Services.AddHealthChecks();
+
+// --- OpenTelemetry (metrics + traces via OTLP) ---------------------------
+// Enabled only when an OTLP endpoint is configured (set by the deploy when a
+// monitoring host exists). Service name comes from OTEL_SERVICE_NAME env.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+{
+    builder.Services.AddOpenTelemetry()
+        .WithMetrics(m => m
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddOtlpExporter())
+        .WithTracing(t => t
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter());
+}
 
 // Swagger / OpenAPI.
 builder.Services.AddEndpointsApiExplorer();
