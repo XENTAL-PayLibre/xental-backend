@@ -1,0 +1,40 @@
+name: Security scan
+
+on:
+  push:
+    branches: [dev, staging, main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"   # weekly Monday 06:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --no-banner --redact --verbose
+
+  vulnerabilities:
+    name: Dependency & IaC scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"     # fail on fixable CRITICAL/HIGH
+          format: table
