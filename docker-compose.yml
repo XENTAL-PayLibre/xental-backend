@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: xental-api:latest
+    container_name: xental-api
+    # Run as the non-root "app" user (UID 1654) shipped in the .NET images.
+    user: "1654:1654"
+    # Runtime configuration is supplied from this project's .env file.
+    env_file:
+      - .env
+    ports:
+      # Host port is taken from .env (API_PORT); container always listens on 8080.
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      # Logs are written by the app to /app/logs and persisted in a named volume.
+      - xental-logs:/app/logs
+    restart: unless-stopped
+    # A database service (e.g. postgres) can be added here as modules
+    # introduce persistence, with the api depending on it.
+
+volumes:
+  xental-logs:

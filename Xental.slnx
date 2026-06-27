@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Xental.Api/Xental.Api.csproj" />
+    <Project Path="src/Xental.Application/Xental.Application.csproj" />
+    <Project Path="src/Xental.Domain/Xental.Domain.csproj" />
+    <Project Path="src/Xental.Infrastructure/Xental.Infrastructure.csproj" />
+  </Folder>
+</Solution>
