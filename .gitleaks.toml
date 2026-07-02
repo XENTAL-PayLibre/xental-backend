@@ -1,0 +1,14 @@
+# gitleaks configuration for xental-backend.
+# Extends the built-in ruleset and allowlists known-non-secret test fixtures only.
+title = "Xental gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Dummy signing keys used only by the in-memory test host (never real secrets)."
+# Matched by value, not path, so a genuine secret committed anywhere is still caught.
+regexes = [
+  '''integration-tests-signing-key-[0-9a-z-]+''',
+  '''(?:0123456789){3,}''',
+]
