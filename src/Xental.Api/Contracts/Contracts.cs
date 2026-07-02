@@ -107,3 +107,81 @@ public sealed record VirtualAccountResponse(
     string PaymentState,
     DateTimeOffset? ExpiryDateUtc,
     DateTimeOffset CreatedAtUtc);
+
+// ---- Transactions (Phase 5) ----
+public sealed record TransactionResponse(
+    Guid Id,
+    string Reference,
+    Guid? VirtualAccountId,
+    long AmountKobo,
+    long FeeKobo,
+    long NetCreditKobo,
+    string Status,
+    string Reconciliation,
+    string? Reason,
+    int RiskScore,
+    string? TransferName,
+    DateTimeOffset OccurredAtUtc,
+    DateTimeOffset? ReconciledAtUtc);
+
+// ---- Transfers / payouts (Phase 5) ----
+public sealed record BankLookupRequest(
+    [Required] string AccountNumber,
+    [Required] string BankCode);
+
+public sealed record BankLookupResponse(string AccountName, string AccountNumber, string BankCode);
+
+public sealed record CreateTransferRequest(
+    [Required, StringLength(100, MinimumLength = 1)] string MerchantTxRef,
+    [Range(1, long.MaxValue)] long AmountKobo,
+    [Required] string AccountNumber,
+    [Required] string BankCode,
+    string? Narration);
+
+public sealed record TransferResponse(
+    Guid Id,
+    string MerchantTxRef,
+    long AmountKobo,
+    string RecipientAccountNumber,
+    string RecipientBankCode,
+    string Status,
+    string? ProviderReference,
+    string? FailureReason,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? CompletedAtUtc);
+
+// ---- Outbound webhooks (Phase 4) ----
+public sealed record CreateWebhookEndpointRequest([Required, Url] string Url);
+
+public sealed record WebhookEndpointResponse(Guid Id, string Url, bool Active, DateTimeOffset CreatedAtUtc);
+
+/// <summary>Signing secret is present only in the create response (shown once).</summary>
+public sealed record WebhookEndpointCreatedResponse(Guid Id, string Url, string SigningSecret);
+
+public sealed record WebhookDeliveryResponse(
+    Guid Id,
+    Guid EndpointId,
+    string EventType,
+    string Status,
+    int Attempts,
+    DateTimeOffset? NextAttemptAtUtc,
+    DateTimeOffset? DeliveredAtUtc,
+    int? LastStatusCode,
+    string? LastError,
+    DateTimeOffset CreatedAtUtc);
+
+// ---- Insights (analytics) ----
+public sealed record InsightsResponse(
+    int VirtualAccounts,
+    int Deposits,
+    long TotalCollectedKobo,
+    long ExpectedKobo,
+    long OutstandingDeficitKobo,
+    double CollectionRatePct,
+    int Reconciled,
+    int Underpaid,
+    int Overpaid,
+    int PendingReview,
+    int HighRisk,
+    int FullyPaidAccounts,
+    int PartiallyPaidAccounts);

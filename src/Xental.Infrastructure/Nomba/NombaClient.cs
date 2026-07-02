@@ -71,6 +71,60 @@ public sealed class NombaClient(
         }
     }
 
+    public async Task<BankAccountName> LookupBankAccountAsync(string accountNumber, string bankCode, CancellationToken ct = default)
+    {
+        using var doc = await SendAsync(HttpMethod.Post, "transfers/bank/lookup",
+            new { accountNumber, bankCode }, ct);
+        var data = doc.RootElement.TryGetProperty("data", out var d) ? d : doc.RootElement;
+        var name = Str(data, "accountName") ?? Str(data, "bankAccountName") ?? Str(data, "name")
+            ?? throw new NombaIntegrationException("Nomba lookup did not return an account name.");
+        return new BankAccountName(name, accountNumber, bankCode);
+    }
+
+    public async Task<TransferResult> InitiateTransferAsync(
+        string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? narration, CancellationToken ct = default)
+    {
+        try
+        {
+            using var doc = await SendAsync(HttpMethod.Post, "transfers/bank", new
+            {
+                merchantTxRef,
+                amount = amountKobo / 100m, // Nomba expects naira
+                accountNumber,
+                bankCode,
+                narration = narration ?? "Xental settlement",
+                senderName = "Xental",
+            }, ct);
+            var data = doc.RootElement.TryGetProperty("data", out var d) ? d : doc.RootElement;
+            var reference = Str(data, "id") ?? Str(data, "transactionId") ?? Str(data, "reference") ?? merchantTxRef;
+            var status = Str(data, "status") ?? "PENDING";
+            var success = status.Contains("success", StringComparison.OrdinalIgnoreCase)
+                          || status is "00" || status.Contains("pending", StringComparison.OrdinalIgnoreCase);
+            return new TransferResult(success, reference, success ? null : status);
+        }
+        catch (NombaIntegrationException ex)
+        {
+            return new TransferResult(false, null, ex.Message);
+        }
+    }
+
+    private async Task<JsonDocument> SendAsync(HttpMethod method, string path, object body, CancellationToken ct)
+    {
+        var http = httpClientFactory.CreateClient("nomba");
+        var token = await tokenProvider.GetAccessTokenAsync(ct);
+        using var request = new HttpRequestMessage(method, path) { Content = JsonContent.Create(body) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (!string.IsNullOrWhiteSpace(_options.AccountId))
+            request.Headers.TryAddWithoutValidation("accountId", _options.AccountId);
+
+        using var response = await http.SendAsync(request, ct);
+        var raw = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new NombaIntegrationException($"Nomba {path} failed ({(int)response.StatusCode}): {raw}");
+        try { return JsonDocument.Parse(raw); }
+        catch (JsonException) { throw new NombaIntegrationException($"Could not parse Nomba {path} response: {raw}"); }
+    }
+
     private static string? Str(JsonElement el, string name) =>
         el.ValueKind == JsonValueKind.Object && el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString() : null;

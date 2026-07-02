@@ -25,3 +25,16 @@ public sealed class ResendOptions
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey) && !string.IsNullOrWhiteSpace(FromEmail);
 }
+
+public sealed class AlertOptions
+{
+    public const string SectionName = "Alerts";
+
+    /// <summary>Email that receives server-error (5xx) alerts. Empty disables alerting.</summary>
+    public string Email { get; set; } = string.Empty;
+    public bool Enabled { get; set; } = true;
+    /// <summary>Suppress repeat alerts for the same error signature within this window.</summary>
+    public int ThrottleMinutes { get; set; } = 10;
+
+    public bool IsActive => Enabled && !string.IsNullOrWhiteSpace(Email);
+}

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
+using Xental.Application.Webhooks;
 using Xental.Domain.Common;
 using Xental.Domain.Payments;
 
@@ -25,6 +26,8 @@ public sealed record WebhookResult(
 public sealed class NombaWebhookService(
     IApplicationDbContext db,
     INombaSignatureVerifier signatures,
+    RiskEvaluator risk,
+    OutboundEventPublisher outbound,
     IClock clock)
 {
     public async Task<WebhookResult> ProcessAsync(byte[] rawBody, string? signatureHeader, string? timestampHeader, CancellationToken ct = default)
@@ -84,9 +87,21 @@ public sealed class NombaWebhookService(
             _ => nameMismatch ? TransactionFlag.NameMismatch : (TransactionFlag?)null,
         };
 
-        db.Transactions.Add(new Transaction(
+        // Risk scoring — a high score routes to review even when the amount reconciles.
+        var riskScore = await risk.ScoreAsync(account, inflow, nameMismatch, ct);
+        if (riskScore >= RiskEvaluator.ReviewThreshold)
+        {
+            reconciliation = ReconciliationStatus.PendingReview;
+            reason = TransactionFlag.ManualReview;
+        }
+
+        var txn = new Transaction(
             account.TenantId, account.Id, inflow.Reference, inflow.TransferName,
-            gross, fee, TransactionStatus.Success, reconciliation, reason, occurred, now));
+            gross, fee, TransactionStatus.Success, reconciliation, reason, occurred, now, riskScore);
+        db.Transactions.Add(txn);
+
+        // Enqueue enriched outbound events (delivered async by the worker), in the same tx.
+        await outbound.PublishDepositAsync(account, txn, ct);
 
         await db.SaveChangesAsync(ct);
         return new WebhookResult(WebhookStatus.Processed, account.Reference, reconciliation, account.PaymentState, reason);

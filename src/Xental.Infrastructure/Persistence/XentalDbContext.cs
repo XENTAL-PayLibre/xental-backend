@@ -5,6 +5,7 @@ using Xental.Domain.Common;
 using Xental.Domain.Merchants;
 using Xental.Domain.Payments;
 using Xental.Domain.Tenancy;
+using Xental.Domain.Webhooks;
 
 namespace Xental.Infrastructure.Persistence;
 
@@ -32,6 +33,9 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<VirtualAccount> VirtualAccounts => Set<VirtualAccount>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
+    public DbSet<Transfer> Transfers => Set<Transfer>();
+    public DbSet<WebhookEndpoint> WebhookEndpoints => Set<WebhookEndpoint>();
+    public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
 
     // Referenced by the tenant query filter; evaluated per query against the
     // current request's tenant. Guid.Empty (no tenant) matches no rows -> deny by default.
@@ -50,6 +54,9 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<SubMerchant>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<Customer>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<VirtualAccount>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Transfer>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<WebhookEndpoint>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<WebhookDelivery>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         // Transactions are written by the webhook processor without a tenant context (and may
         // have no tenant when the account is unknown), so no global filter — reads are filtered
         // explicitly by TenantId in the tenant-scoped services (Phase 5).

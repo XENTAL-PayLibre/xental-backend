@@ -25,6 +25,12 @@ public static class DependencyInjection
         services.AddScoped<SubMerchantService>();
         services.AddScoped<Payments.VirtualAccountService>();
         services.AddScoped<Payments.NombaWebhookService>();
+        services.AddScoped<Payments.RiskEvaluator>();
+        services.AddScoped<Payments.TransactionQueryService>();
+        services.AddScoped<Payments.TransferService>();
+        services.AddScoped<Payments.InsightsService>();
+        services.AddScoped<Webhooks.OutboundEventPublisher>();
+        services.AddScoped<Webhooks.WebhookEndpointService>();
         return services;
     }
 }

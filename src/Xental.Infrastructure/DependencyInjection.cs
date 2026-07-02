@@ -10,6 +10,7 @@ using Xental.Infrastructure.Nomba;
 using Xental.Infrastructure.Persistence;
 using Xental.Infrastructure.Security;
 using Xental.Infrastructure.Time;
+using Xental.Infrastructure.Webhooks;
 
 namespace Xental.Infrastructure;
 
@@ -44,6 +45,10 @@ public static class DependencyInjection
         services.AddHttpClient("resend");
         services.AddScoped<IEmailSender, ResendEmailSender>();
 
+        // Operational alerting: email operators on unhandled 5xx (throttled).
+        services.AddOptions<AlertOptions>().Bind(configuration.GetSection(AlertOptions.SectionName));
+        services.AddSingleton<IErrorAlerter, EmailErrorAlerter>();
+
         // Social login providers (Google, GitHub). Options bound under Auth:*.
         services.AddHttpClient("oauth");
         services.AddScoped<IExternalIdentityProvider, GoogleIdentityProvider>();
@@ -64,6 +69,12 @@ public static class DependencyInjection
         services.AddSingleton<INombaTokenProvider, NombaTokenProvider>();
         services.AddScoped<INombaClient, NombaClient>();
         services.AddSingleton<INombaSignatureVerifier, NombaSignatureVerifier>();
+
+        // Outbound developer webhooks: at-rest secret encryption, SSRF guard, delivery worker.
+        services.AddSingleton<ISecretProtector, AesSecretProtector>();
+        services.AddSingleton<IOutboundUrlGuard, OutboundUrlGuard>();
+        services.AddHttpClient("outbound-webhook");
+        services.AddHostedService<WebhookDeliveryWorker>();
 
         return services;
     }

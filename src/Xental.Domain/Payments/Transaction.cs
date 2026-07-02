@@ -29,6 +29,8 @@ public sealed class Transaction : BaseEntity
     public TransactionStatus Status { get; private set; }
     public ReconciliationStatus Reconciliation { get; private set; }
     public TransactionFlag? Reason { get; private set; }
+    /// <summary>0–100 risk score computed at ingestion (velocity, name reuse, large overpayment).</summary>
+    public int RiskScore { get; private set; }
     public DateTimeOffset OccurredAtUtc { get; private set; }
     public DateTimeOffset? ReconciledAtUtc { get; private set; }
 
@@ -37,7 +39,7 @@ public sealed class Transaction : BaseEntity
     public Transaction(
         Guid? tenantId, Guid? virtualAccountId, string nombaReference, string? transferName,
         Money amount, Money fee, TransactionStatus status, ReconciliationStatus reconciliation,
-        TransactionFlag? reason, DateTimeOffset occurredAtUtc, DateTimeOffset? reconciledAtUtc)
+        TransactionFlag? reason, DateTimeOffset occurredAtUtc, DateTimeOffset? reconciledAtUtc, int riskScore = 0)
     {
         NombaReference = DomainException.Require(nombaReference, nameof(nombaReference));
         TenantId = tenantId;
@@ -49,6 +51,7 @@ public sealed class Transaction : BaseEntity
         Status = status;
         Reconciliation = reconciliation;
         Reason = reason;
+        RiskScore = Math.Clamp(riskScore, 0, 100);
         OccurredAtUtc = occurredAtUtc;
         ReconciledAtUtc = reconciledAtUtc;
     }
