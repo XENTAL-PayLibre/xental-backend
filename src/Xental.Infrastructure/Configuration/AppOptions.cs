@@ -4,8 +4,16 @@ public sealed class AppOptions
 {
     public const string SectionName = "App";
 
-    /// <summary>Public base URL used to build magic-link + OAuth callback URLs.</summary>
+    /// <summary>Public URL of the frontend (e.g. https://xental.online). Used for
+    /// user-facing pages: email-verified, reset-password, OAuth callback.</summary>
     public string BaseUrl { get; set; } = "http://localhost:8080";
+
+    /// <summary>Public URL of this API (e.g. https://api.xental.online). Used for the
+    /// email-verification magic link, which hits the API then redirects to the frontend.
+    /// Falls back to <see cref="BaseUrl"/> when unset.</summary>
+    public string ApiBaseUrl { get; set; } = string.Empty;
+
+    public string EffectiveApiBaseUrl => string.IsNullOrWhiteSpace(ApiBaseUrl) ? BaseUrl : ApiBaseUrl;
 }
 
 public sealed class ResendOptions

@@ -12,4 +12,7 @@ public interface ILinkBuilder
 
     TimeSpan EmailVerificationTtl { get; }
     TimeSpan PasswordResetTtl { get; }
+
+    /// <summary>How long a dashboard refresh token stays valid.</summary>
+    TimeSpan RefreshTokenLifetime { get; }
 }

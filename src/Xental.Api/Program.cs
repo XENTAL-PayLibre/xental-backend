@@ -1,5 +1,7 @@
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -45,7 +47,11 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, TenantContext>();
 
-// JWT bearer authentication (client-credentials tokens).
+// Writes the HttpOnly+Secure dashboard session cookies.
+builder.Services.AddScoped<AuthCookieWriter>();
+
+// JWT bearer authentication. API tokens arrive as `Authorization: Bearer`; dashboard
+// access tokens arrive as the HttpOnly `xnt_access` cookie (read below).
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -61,6 +67,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
         };
+        // Fall back to the access-token cookie when there's no Authorization header.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (string.IsNullOrEmpty(context.Token) &&
+                    context.Request.Cookies.TryGetValue(AuthCookieWriter.AccessCookie, out var cookie))
+                {
+                    context.Token = cookie;
+                }
+                return Task.CompletedTask;
+            },
+        };
     });
 // Two token planes, separated by the `scope` claim:
 //   dashboard -> email/password login, manages API keys
@@ -74,6 +93,46 @@ builder.Services.AddAuthorization(options =>
         .RequireAuthenticatedUser()
         .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Api));
 });
+
+// TLS is terminated at Traefik; trust its X-Forwarded-* so the real client IP/scheme
+// are used (needed for correct rate-limit partitioning and HTTPS awareness).
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Rate limiting: a per-IP global safety net plus a stricter "auth" policy on the
+// credential/session endpoints (login, register, token, refresh, reset, OAuth).
+var rateLimitingDisabled = builder.Configuration.GetValue<bool>("RateLimiting:Disabled");
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    static string ClientKey(HttpContext ctx) =>
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    RateLimitPartition<string> Window(HttpContext ctx, int permit) => rateLimitingDisabled
+        ? RateLimitPartition.GetNoLimiter("disabled")
+        : RateLimitPartition.GetFixedWindowLimiter(ClientKey(ctx),
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = permit, Window = TimeSpan.FromMinutes(1) });
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx => Window(ctx, 300));
+    options.AddPolicy("auth", ctx => Window(ctx, 10));
+});
+
+// CORS: allow the dashboard frontend origins to call the API with credentials
+// (needed so the browser sends the HttpOnly session cookies cross-origin).
+// Configure Cors:AllowedOrigins (comma-separated or array); empty = same-origin only.
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? (builder.Configuration["Cors:AllowedOrigins"]?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    ?? [];
+builder.Services.AddCors(options => options.AddPolicy("frontend", policy =>
+{
+    if (corsOrigins.Length > 0)
+        policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+}));
 
 // Health checks.
 builder.Services.AddHealthChecks();
@@ -129,6 +188,10 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+// Honor Traefik's forwarded headers first (real client IP + scheme) before anything
+// that depends on them (rate limiting, HTTPS awareness, logging).
+app.UseForwardedHeaders();
+
 // Apply EF Core migrations on startup for the relational (Postgres) provider so a
 // freshly-provisioned environment gets its schema automatically. Skipped for the
 // SQLite test host, which creates the schema itself.
@@ -164,8 +227,13 @@ if (!runningInContainer)
     app.UseHttpsRedirection();
 }
 
+app.UseCors("frontend");
+
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Enforce rate-limit policies on the endpoints that opt in via [EnableRateLimiting].
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapHealthChecks("/health");

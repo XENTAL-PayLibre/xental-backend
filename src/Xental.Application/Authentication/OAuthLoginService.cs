@@ -13,7 +13,7 @@ namespace Xental.Application.Authentication;
 /// </summary>
 public sealed class OAuthLoginService(
     IApplicationDbContext db,
-    IJwtTokenService jwt,
+    SessionIssuer sessions,
     IEnumerable<IExternalIdentityProvider> providers)
 {
     public IExternalIdentityProvider Provider(string name)
@@ -26,7 +26,7 @@ public sealed class OAuthLoginService(
     public string AuthorizationUrl(string providerName, string redirectUri, string state) =>
         Provider(providerName).BuildAuthorizationUrl(redirectUri, state);
 
-    public async Task<AuthenticatedDeveloper> CompleteAsync(string providerName, string code, string redirectUri, CancellationToken ct = default)
+    public async Task<IssuedSession> CompleteAsync(string providerName, string code, string redirectUri, CancellationToken ct = default)
     {
         var provider = Provider(providerName);
         if (string.IsNullOrWhiteSpace(code))
@@ -59,10 +59,10 @@ public sealed class OAuthLoginService(
         if (!tenant.IsActive)
             throw new AuthenticationException("This account is suspended.");
 
-        tenant.MarkEmailVerified();
+        tenant.MarkEmailVerified(); // a social login proves control of the email
         await db.SaveChangesAsync(ct);
 
-        return new AuthenticatedDeveloper(tenant.Id, tenant.Email, tenant.EmailVerified, jwt.IssueDashboardToken(tenant));
+        return await sessions.IssueAsync(tenant, ct);
     }
 
     private Tenant CreateTenant(ExternalUserProfile profile, string email)

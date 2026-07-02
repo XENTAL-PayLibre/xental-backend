@@ -8,17 +8,19 @@ namespace Xental.Infrastructure.Messaging;
 /// <summary>Builds email links from the configured app base URL, and owns token TTLs.</summary>
 public sealed class AppLinkBuilder(IOptions<AppOptions> app, IOptions<AuthOptions> auth) : ILinkBuilder
 {
-    private readonly string _baseUrl = app.Value.BaseUrl.TrimEnd('/');
+    private readonly string _frontendUrl = app.Value.BaseUrl.TrimEnd('/');
+    private readonly string _apiUrl = app.Value.EffectiveApiBaseUrl.TrimEnd('/');
     private readonly AuthOptions _auth = auth.Value;
 
-    // Clicking this hits the API, which verifies then redirects to the app.
+    // Clicking this hits the API, which verifies then redirects to the frontend.
     public string EmailVerificationLink(string rawToken) =>
-        $"{_baseUrl}/api/v1/developers/verify-email?token={Uri.EscapeDataString(rawToken)}";
+        $"{_apiUrl}/api/v1/developers/verify-email?token={Uri.EscapeDataString(rawToken)}";
 
     // Points at the frontend page that collects a new password and POSTs the reset.
     public string PasswordResetLink(string rawToken) =>
-        $"{_baseUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}";
+        $"{_frontendUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}";
 
     public TimeSpan EmailVerificationTtl => TimeSpan.FromMinutes(_auth.EmailVerificationTtlMinutes);
     public TimeSpan PasswordResetTtl => TimeSpan.FromMinutes(_auth.PasswordResetTtlMinutes);
+    public TimeSpan RefreshTokenLifetime => TimeSpan.FromDays(_auth.RefreshTokenDays);
 }

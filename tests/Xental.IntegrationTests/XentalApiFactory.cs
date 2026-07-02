@@ -8,11 +8,38 @@ using Xental.Infrastructure.Persistence;
 
 namespace Xental.IntegrationTests;
 
-/// <summary>No-op email sender so tests never make outbound Resend calls.</summary>
+/// <summary>
+/// Captures the links that would be emailed (keyed by recipient) so tests can drive the
+/// magic-link flows without a real mail provider. No outbound calls are made.
+/// </summary>
 internal sealed class FakeEmailSender : IEmailSender
 {
-    public Task SendEmailVerificationAsync(string toEmail, string verifyLink, CancellationToken ct = default) => Task.CompletedTask;
-    public Task SendPasswordResetAsync(string toEmail, string resetLink, CancellationToken ct = default) => Task.CompletedTask;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Verify = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Reset = new();
+
+    public Task SendEmailVerificationAsync(string toEmail, string verifyLink, CancellationToken ct = default)
+    {
+        Verify[toEmail] = verifyLink;
+        return Task.CompletedTask;
+    }
+
+    public Task SendPasswordResetAsync(string toEmail, string resetLink, CancellationToken ct = default)
+    {
+        Reset[toEmail] = resetLink;
+        return Task.CompletedTask;
+    }
+
+    public static string? VerificationTokenFor(string email) =>
+        Verify.TryGetValue(email, out var link) ? TokenFromLink(link) : null;
+
+    public static string? ResetTokenFor(string email) =>
+        Reset.TryGetValue(email, out var link) ? TokenFromLink(link) : null;
+
+    private static string? TokenFromLink(string link)
+    {
+        var q = link.IndexOf("token=", StringComparison.Ordinal);
+        return q < 0 ? null : Uri.UnescapeDataString(link[(q + "token=".Length)..]);
+    }
 }
 
 /// <summary>
@@ -29,6 +56,9 @@ public sealed class XentalApiFactory : WebApplicationFactory<Program>
         _connection.Open();
 
         builder.UseSetting("Jwt:SigningKey", "integration-tests-signing-key-0123456789-abcdefghijk");
+        // Test client speaks http, so cookies must not be Secure; and don't rate-limit tests.
+        builder.UseSetting("Auth:CookieSecure", "false");
+        builder.UseSetting("RateLimiting:Disabled", "true");
 
         builder.ConfigureServices(services =>
         {

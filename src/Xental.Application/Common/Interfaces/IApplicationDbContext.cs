@@ -11,6 +11,7 @@ public interface IApplicationDbContext
     DbSet<ApiKey> ApiKeys { get; }
     DbSet<EmailVerificationToken> EmailVerificationTokens { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
+    DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<ExternalLogin> ExternalLogins { get; }
     DbSet<SubMerchant> SubMerchants { get; }
 

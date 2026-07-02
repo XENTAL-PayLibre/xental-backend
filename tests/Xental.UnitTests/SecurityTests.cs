@@ -67,8 +67,8 @@ public class JwtTokenServiceTests
 
         var token = service.IssueDashboardToken(tenant);
 
-        token.ExpiresInSeconds.Should().Be(3600);
-        token.ExpiresAt.Should().Be(Clock.UtcNow.AddSeconds(3600));
+        token.ExpiresInSeconds.Should().Be(900, "dashboard access tokens are short-lived (paired with a refresh token)");
+        token.ExpiresAt.Should().Be(Clock.UtcNow.AddSeconds(900));
 
         var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(token.Token);
         jwt.Issuer.Should().Be("xental");

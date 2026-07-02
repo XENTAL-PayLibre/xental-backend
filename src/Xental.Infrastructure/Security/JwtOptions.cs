@@ -10,5 +10,9 @@ public sealed class JwtOptions
     /// <summary>HMAC signing key (>= 32 bytes). Supplied via secret/env in real envs.</summary>
     public string SigningKey { get; set; } = string.Empty;
 
+    /// <summary>Lifetime of an API (client-credentials) token.</summary>
     public int AccessTokenLifetimeSeconds { get; set; } = 3600;
+
+    /// <summary>Lifetime of a dashboard access token (short; paired with a refresh token).</summary>
+    public int DashboardTokenLifetimeSeconds { get; set; } = 900;
 }

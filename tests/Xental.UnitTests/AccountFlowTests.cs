@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xental.Application.Authentication;
+using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
 using Xental.Application.Tenancy;
 using Xental.Domain.Tenancy;
@@ -94,12 +95,14 @@ public class EmailVerificationServiceTests
 
 public class PasswordResetServiceTests
 {
-    private static async Task<string> SeedTenantAsync(TestDatabase db, string password)
+    private const string NewPassword = "New-Passw0rd-99!";
+
+    private static async Task<string> SeedTenantAsync(TestDatabase db)
     {
         await using var ctx = db.CreateContext();
         var email = $"dev-{Guid.NewGuid():N}@example.com";
-        await new DeveloperRegistrationService(ctx, TestSecurity.PasswordHasher(), TestSecurity.Jwt())
-            .RegisterAsync("Dev", email, password);
+        await new DeveloperRegistrationService(ctx, TestSecurity.PasswordHasher())
+            .RegisterAsync("Dev", email, TestSecurity.StrongPassword);
         return email;
     }
 
@@ -110,7 +113,7 @@ public class PasswordResetServiceTests
     public async Task Request_then_reset_changes_the_password()
     {
         using var db = new TestDatabase();
-        var email = await SeedTenantAsync(db, "original-password-123");
+        var email = await SeedTenantAsync(db);
         var mail = new FakeEmailSender();
 
         await using (var ctx = db.CreateContext())
@@ -119,30 +122,45 @@ public class PasswordResetServiceTests
 
         bool ok;
         await using (var ctx = db.CreateContext())
-            ok = await Service(db, ctx, mail).ResetAsync(mail.LastResetLink!, "brand-new-password-456");
+            ok = await Service(db, ctx, mail).ResetAsync(mail.LastResetLink!, NewPassword);
         ok.Should().BeTrue();
 
-        // Old password no longer works, new one does.
-        await using var loginCtx = db.CreateContext();
-        var authService = new DeveloperAuthService(loginCtx, TestSecurity.PasswordHasher(), TestSecurity.Jwt());
-        var login = () => authService.LoginAsync(email, "brand-new-password-456");
-        await login.Should().NotThrowAsync();
+        // The stored hash now matches the new password, not the old one.
+        var hasher = TestSecurity.PasswordHasher();
+        await using var check = db.CreateContext();
+        var tenant = await check.Tenants.SingleAsync(t => t.Email == email);
+        hasher.Verify(NewPassword, tenant.PasswordHash).Should().BeTrue();
+        hasher.Verify(TestSecurity.StrongPassword, tenant.PasswordHash).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reset_rejects_a_weak_new_password()
+    {
+        using var db = new TestDatabase();
+        var email = await SeedTenantAsync(db);
+        var mail = new FakeEmailSender();
+        await using (var ctx = db.CreateContext())
+            await Service(db, ctx, mail).RequestAsync(email);
+
+        await using var ctx2 = db.CreateContext();
+        var act = () => Service(db, ctx2, mail).ResetAsync(mail.LastResetLink!, "weak");
+        await act.Should().ThrowAsync<ValidationException>();
     }
 
     [Fact]
     public async Task Reset_token_is_single_use()
     {
         using var db = new TestDatabase();
-        var email = await SeedTenantAsync(db, "original-password-123");
+        var email = await SeedTenantAsync(db);
         var mail = new FakeEmailSender();
 
         await using (var ctx = db.CreateContext())
             await Service(db, ctx, mail).RequestAsync(email);
         await using (var ctx = db.CreateContext())
-            await Service(db, ctx, mail).ResetAsync(mail.LastResetLink!, "brand-new-password-456");
+            await Service(db, ctx, mail).ResetAsync(mail.LastResetLink!, NewPassword);
 
         await using var ctx2 = db.CreateContext();
-        var second = await Service(db, ctx2, mail).ResetAsync(mail.LastResetLink!, "another-password-789");
+        var second = await Service(db, ctx2, mail).ResetAsync(mail.LastResetLink!, "Another-Passw0rd-1!");
         second.Should().BeFalse();
     }
 
@@ -159,8 +177,8 @@ public class PasswordResetServiceTests
 
 public class OAuthLoginServiceTests
 {
-    private static OAuthLoginService Service(XentalDbContext ctx, IExternalIdentityProvider provider) =>
-        new(ctx, TestSecurity.Jwt(), new[] { provider });
+    private static OAuthLoginService Service(TestDatabase db, XentalDbContext ctx, IExternalIdentityProvider provider) =>
+        new(ctx, TestSecurity.Sessions(ctx, db.Clock), new[] { provider });
 
     [Fact]
     public async Task First_login_creates_a_verified_account_and_links_it()
@@ -169,12 +187,13 @@ public class OAuthLoginServiceTests
         var profile = new ExternalUserProfile("google", "google-123", "New.User@Example.com", "New User");
         var provider = new FakeOAuthProvider("google", profile);
 
-        AuthenticatedDeveloper result;
+        IssuedSession result;
         await using (var ctx = db.CreateContext())
-            result = await Service(ctx, provider).CompleteAsync("google", "code", "https://app/callback");
+            result = await Service(db, ctx, provider).CompleteAsync("google", "code", "https://app/callback");
 
         result.Email.Should().Be("new.user@example.com");
         result.EmailVerified.Should().BeTrue("social login proves email ownership");
+        result.RefreshToken.Should().NotBeNullOrWhiteSpace();
 
         await using var check = db.CreateContext();
         (await check.Tenants.CountAsync()).Should().Be(1);
@@ -189,10 +208,10 @@ public class OAuthLoginServiceTests
 
         Guid firstTenant;
         await using (var ctx = db.CreateContext())
-            firstTenant = (await Service(ctx, provider).CompleteAsync("github", "c1", "https://app/callback")).TenantId;
+            firstTenant = (await Service(db, ctx, provider).CompleteAsync("github", "c1", "https://app/callback")).TenantId;
         Guid secondTenant;
         await using (var ctx = db.CreateContext())
-            secondTenant = (await Service(ctx, provider).CompleteAsync("github", "c2", "https://app/callback")).TenantId;
+            secondTenant = (await Service(db, ctx, provider).CompleteAsync("github", "c2", "https://app/callback")).TenantId;
 
         secondTenant.Should().Be(firstTenant);
         await using var check = db.CreateContext();
@@ -206,12 +225,12 @@ public class OAuthLoginServiceTests
         using var db = new TestDatabase();
         // A password account already exists with this email.
         await using (var ctx = db.CreateContext())
-            await new DeveloperRegistrationService(ctx, TestSecurity.PasswordHasher(), TestSecurity.Jwt())
-                .RegisterAsync("Dev", "dev@example.com", "original-password-123");
+            await new DeveloperRegistrationService(ctx, TestSecurity.PasswordHasher())
+                .RegisterAsync("Dev", "dev@example.com", TestSecurity.StrongPassword);
 
         var provider = new FakeOAuthProvider("google", new ExternalUserProfile("google", "g-9", "dev@example.com", "Dev"));
         await using (var ctx = db.CreateContext())
-            await Service(ctx, provider).CompleteAsync("google", "code", "https://app/callback");
+            await Service(db, ctx, provider).CompleteAsync("google", "code", "https://app/callback");
 
         await using var check = db.CreateContext();
         (await check.Tenants.CountAsync()).Should().Be(1, "the social login links to the existing account, not a new one");

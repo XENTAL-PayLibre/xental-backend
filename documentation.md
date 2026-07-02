@@ -2,8 +2,9 @@
 
 > **Living document.** This is the source of truth for how the Xental backend is used,
 > written so the frontend (dashboard + docs site) can be built against it. It is updated
-> as the system evolves. Last updated for **Stage 3 — Email verification, password reset,
-> and social login (Google/GitHub)**.
+> as the system evolves. Last updated for **Stage 4 — Cookie-based sessions (HttpOnly access
+> + rotating refresh), verify-before-login, strong passwords, rate limiting, and CORS**.
+> Section 3 is authoritative for the auth model.
 
 ---
 
@@ -56,73 +57,76 @@ accounts may reuse the same reference).
 
 ## 3. Authentication flows
 
-### 3.1 Register a developer account
+> **Dashboard sessions are cookie-based.** Login/refresh/OAuth set two **HttpOnly, Secure,
+> SameSite=Lax** cookies — `xnt_access` (short-lived, ~15 min) and `xnt_refresh` (rotating,
+> ~14 days). Tokens are **never** in a response body and are not readable by JS. The browser
+> sends them automatically; a frontend on a different origin must use `fetch(..., { credentials: "include" })`
+> and be listed in the API's CORS allow-list. The **API plane** (server-to-server) is unchanged:
+> it uses `Authorization: Bearer <api-token>` from client-credentials.
+
+### 3.1 Register (does NOT log you in)
 ```
 POST /api/v1/developers/register
-{ "name": "Acme Dev", "email": "dev@acme.com", "password": "correct-horse-battery" }
+{ "name": "Acme Dev", "email": "dev@acme.com", "password": "Str0ng-Passw0rd!" }
 ```
-Returns a **dashboard token** so the UI is logged in immediately after signup.
-- Password must be **≥ 12 characters**.
-- Email is normalized (trimmed + lowercased) and must be unique → `409` if taken.
+Creates an **unverified** account and emails a verification link. Returns `201` with
+`{ tenantId, email, emailVerified:false, message }` and **no session** — the user must verify
+their email before they can log in.
+- **Strong password required**: 12–128 chars incl. an uppercase, a lowercase, a digit, and a special char (else `400` with a descriptive message).
+- Email normalized + unique → `409` if taken.
 
-### 3.2 Log in
+### 3.2 Verify email (magic link)
+The emailed link points at the API: `GET {api}/api/v1/developers/verify-email?token=…`. It
+verifies the account and **redirects the browser to the frontend** at
+`{frontend}/email-verified?verified=true|false`. Re-send with
+`POST /api/v1/developers/resend-verification` (requires a session).
+
+### 3.3 Log in (verified accounts only)
 ```
 POST /api/v1/developers/login
-{ "email": "dev@acme.com", "password": "correct-horse-battery" }
+{ "email": "dev@acme.com", "password": "Str0ng-Passw0rd!" }
 ```
-Returns a dashboard token. Wrong email or password both return the **same** generic
-`401` (no account-enumeration leak).
+On success: `200` with `{ tenantId, email, emailVerified }` **and `Set-Cookie` for
+`xnt_access` + `xnt_refresh`**. Errors: `401` generic "invalid email or password" (no
+enumeration); `403` "Email not verified" (verify first).
 
-### 3.3 Create an API key (dashboard token required)
-```
-POST /api/v1/api-keys        Authorization: Bearer <dashboard-token>
-{ "label": "server-prod", "mode": "live" }
-```
-The response is the **only** time the client secret is ever returned — store it securely.
+### 3.4 Refresh / logout
+- `POST /api/v1/developers/refresh` — reads the `xnt_refresh` cookie, **rotates** it
+  (single-use; the old one is invalidated), and sets fresh cookies. `401` if missing/expired.
+  Call this when an API call returns `401` (access token expired).
+- `POST /api/v1/developers/logout` — revokes the refresh token and clears both cookies. `204`.
 
-### 3.4 Exchange the API key for an API token (OAuth2 client-credentials)
-```
-POST /api/v1/auth/token
-{ "clientId": "xnt_live_…", "clientSecret": "sk_live_…" }
-```
-Returns a short-lived **API token** (default 1 hour). Use it as `Authorization: Bearer …`
-on all payments-API calls. Re-request a new token when it expires.
-
-```
-Developer ──register/login──▶ dashboard token ──create key──▶ (client id + secret)
-(client id + secret) ──/auth/token──▶ API token ──▶ payments API
-```
-
-### 3.5 Verify email (magic link)
-On register, Xental emails a verification link. Clicking it hits
-`GET /api/v1/developers/verify-email?token=…`, which verifies the account and **redirects
-the browser** to `{App.BaseUrl}/email-verified?verified=true|false`. The dashboard can
-re-send with `POST /api/v1/developers/resend-verification` (dashboard token). Read
-`emailVerified` from the profile or dashboard token to know current status.
-
-### 3.6 Forgot / reset password
+### 3.5 Forgot / reset password
 ```
 POST /api/v1/developers/forgot-password   { "email": "dev@acme.com" }   -> 202 (always)
 ```
-Emails a reset link to `{App.BaseUrl}/reset-password?token=…`. That frontend page collects
-a new password and calls:
+Emails a reset link to `{frontend}/reset-password?token=…`. That page collects a new
+password (same strong-password rules) and calls:
 ```
 POST /api/v1/developers/reset-password    { "token": "…", "newPassword": "…" }
 ```
-Requesting a reset always returns `202` regardless of whether the email exists (no
-enumeration). Resetting consumes the link and invalidates all other outstanding reset links.
+Always `202` on request (no enumeration). Reset consumes the link and invalidates all other
+outstanding reset links.
 
-### 3.7 Social login (Google / GitHub)
-Browser-based OAuth. Point the browser at:
+### 3.6 Social login (Google / GitHub)
+Point the browser at `GET /api/v1/auth/oauth/google` (or `/github`). After consent the
+provider returns to `/api/v1/auth/oauth/{provider}/callback`, which finds-or-creates the
+account (email auto-verified), **sets the session cookies**, and redirects to
+`{frontend}/auth/callback#status=ok` (or `#error=…`). A social login for an existing email
+links to that same account.
+
+### 3.7 API plane: key → token → payments API
 ```
-GET /api/v1/auth/oauth/google      (or /github)
+POST /api/v1/api-keys        (dashboard session)   { "label": "server-prod", "mode": "live" }
+POST /api/v1/auth/token      { "clientId": "xnt_live_…", "clientSecret": "sk_live_…" }  -> API token (JSON)
 ```
-Xental redirects to the provider; after consent the provider returns to
-`GET /api/v1/auth/oauth/{provider}/callback`, which finds-or-creates the account (marking
-its email verified) and **redirects to the app** at
-`{App.BaseUrl}/auth/callback#token=<dashboard-jwt>` — or `#error=<reason>` on failure. The
-app reads the token from the URL fragment. A social login for an email that already has a
-password account links to that same account.
+The client secret is shown **once** at key creation. The API token (JSON body, ~1 h) is used
+as `Authorization: Bearer …` on payments-API calls; re-request when it expires.
+
+```
+Register ─▶ verify email ─▶ login (session cookies) ─▶ create key ─▶ (client id + secret)
+(client id + secret) ─▶ /auth/token ─▶ API token (Bearer) ─▶ payments API
+```
 
 ---
 
@@ -302,13 +306,21 @@ verification.
 
 ## 7. Security posture
 
-- Passwords hashed with **bcrypt** (work factor ≥ 12).
-- API secrets stored as **PBKDF2** hashes, never in plaintext; shown once.
-- Login and token endpoints run a constant-time check against a dummy hash for unknown
-  accounts/keys → no timing or enumeration leaks; all failures return one generic message.
-- Tokens are HMAC-SHA256 JWTs, short-lived (default 1h), issuer/audience validated.
-- Strict **tenant isolation** at the data layer: every query is filtered by the current
-  account, and cross-tenant writes are blocked at save time.
+- **Strong passwords** enforced (12–128 chars, upper+lower+digit+special), bcrypt-hashed
+  (work factor ≥ 12). API secrets stored as **PBKDF2** hashes; shown once.
+- **Verify-before-login**: registration never starts a session; login is blocked (`403`)
+  until the email is verified via magic link.
+- **Cookie sessions**: dashboard access + refresh tokens are delivered only as HttpOnly,
+  Secure, SameSite=Lax cookies (never in a body, unreadable by JS). Access tokens are
+  short-lived (~15 min); refresh tokens (~14 days) are **single-use / rotating** and stored
+  only as SHA-256 hashes, so replay is detectable and logout revokes them.
+- **Rate limiting**: per-IP limits on auth/credential endpoints (login, register, token,
+  refresh, reset, OAuth) plus a global safety net; `429` when exceeded. Real client IP is
+  taken from Traefik's forwarded headers.
+- **CORS**: only configured frontend origins may call the API with credentials.
+- Login/token endpoints run a constant-time dummy-hash check → no timing/enumeration leaks.
+- Tokens are HMAC-SHA256 JWTs, issuer/audience validated. API tokens (~1h) carry the key mode.
+- Strict **tenant isolation** at the data layer; cross-tenant writes blocked at save time.
 - Two-plane scoping keeps dashboard and API privileges separate.
 
 ---
@@ -322,12 +334,18 @@ Set via `.env.local` (local) or real secrets in deployed environments. See `.env
 | `ConnectionStrings__Default` | PostgreSQL connection string |
 | `Jwt__SigningKey` | HMAC signing key (**≥ 32 bytes**) |
 | `Jwt__Issuer`, `Jwt__Audience` | Token issuer/audience |
+| `Jwt__AccessTokenLifetimeSeconds` / `Jwt__DashboardTokenLifetimeSeconds` | API token / dashboard access-token lifetimes |
 | `Auth__BcryptWorkFactor` | Password hashing cost (≥ 12) |
-| `Auth__EmailVerificationTtlMinutes` | Magic-link validity window (Stage 2) |
-| `App__BaseUrl` | Public base URL (used in magic links) |
-| `Resend__ApiKey`, `Resend__FromEmail` | Transactional email (Stage 2) |
-| `Auth__Google__ClientId` / `__ClientSecret` | Google OAuth login (Stage 3) |
-| `Auth__GitHub__ClientId` / `__ClientSecret` | GitHub OAuth login (Stage 3) |
+| `Auth__EmailVerificationTtlMinutes` / `Auth__PasswordResetTtlMinutes` | Magic-link validity windows |
+| `Auth__RefreshTokenDays` | Refresh-token lifetime (days) |
+| `Auth__CookieSecure` | Session cookies require HTTPS (true except plain-HTTP local dev) |
+| `Auth__CookieDomain` | Cookie domain (empty = host-only; recommended) |
+| `App__BaseUrl` | **Frontend** URL (email-verified, reset-password, OAuth callback pages) |
+| `App__ApiBaseUrl` | This **API** URL (email-verification magic-link target) |
+| `Cors__AllowedOrigins` | Comma-separated frontend origins allowed with credentials |
+| `Resend__ApiKey`, `Resend__FromEmail` | Transactional email |
+| `Auth__Google__ClientId` / `__ClientSecret` | Google OAuth login |
+| `Auth__GitHub__ClientId` / `__ClientSecret` | GitHub OAuth login |
 | `Nomba__*` | Provider credentials (parent account + sub-account) |
 
 ---

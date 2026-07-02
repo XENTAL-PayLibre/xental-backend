@@ -25,6 +25,7 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();
     public DbSet<SubMerchant> SubMerchants => Set<SubMerchant>();
 
@@ -40,6 +41,7 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<ApiKey>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmailVerificationToken>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<PasswordResetToken>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<RefreshToken>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<ExternalLogin>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<SubMerchant>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
 

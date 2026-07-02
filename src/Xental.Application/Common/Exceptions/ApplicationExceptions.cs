@@ -6,6 +6,9 @@ public sealed class ValidationException(string message) : Exception(message);
 /// <summary>Client credentials invalid / tenant not active (maps to 401).</summary>
 public sealed class AuthenticationException(string message) : Exception(message);
 
+/// <summary>Credentials are valid but the account's email is not verified (maps to 403).</summary>
+public sealed class EmailNotVerifiedException(string message) : Exception(message);
+
 /// <summary>A uniqueness/state conflict (maps to 409).</summary>
 public sealed class ConflictException(string message) : Exception(message);
 

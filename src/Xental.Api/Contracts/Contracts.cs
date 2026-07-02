@@ -3,23 +3,32 @@ using System.ComponentModel.DataAnnotations;
 namespace Xental.Api.Contracts;
 
 // ---- Developer account (dashboard plane) ----
+// Password rules (length + complexity) are enforced server-side by PasswordPolicy,
+// which returns a descriptive message; the DTO only caps the max length.
 public sealed record RegisterDeveloperRequest(
     [Required, StringLength(200, MinimumLength = 2)] string Name,
     [Required, EmailAddress, StringLength(320)] string Email,
-    [Required, StringLength(128, MinimumLength = 12)] string Password);
+    [Required, StringLength(128)] string Password);
 
 public sealed record LoginRequest(
     [Required, EmailAddress] string Email,
     [Required] string Password);
 
-/// <summary>Returned by register + login — a dashboard access token.</summary>
-public sealed record DeveloperAuthResponse(
+/// <summary>Register response — no token; the account must verify its email first.</summary>
+public sealed record RegisterResponse(
     Guid TenantId,
     string Email,
     bool EmailVerified,
-    string AccessToken,
-    string TokenType,
-    int ExpiresIn);
+    string Message);
+
+/// <summary>
+/// Login/refresh/OAuth response. Tokens are NOT here — they are set as HttpOnly, Secure
+/// cookies (xnt_access, xnt_refresh). The body only carries who is logged in.
+/// </summary>
+public sealed record SessionResponse(
+    Guid TenantId,
+    string Email,
+    bool EmailVerified);
 
 /// <summary>The current developer account's profile (GET /developers/me).</summary>
 public sealed record DeveloperProfileResponse(
@@ -35,7 +44,7 @@ public sealed record ForgotPasswordRequest(
 
 public sealed record ResetPasswordRequest(
     [Required] string Token,
-    [Required, StringLength(128, MinimumLength = 12)] string NewPassword);
+    [Required, StringLength(128)] string NewPassword);
 
 // ---- API keys (created in the dashboard, used by the integration) ----
 public sealed record CreateApiKeyRequest(

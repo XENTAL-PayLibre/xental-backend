@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Xental.Api.Contracts;
 using Xental.Application.Authentication;
 
@@ -7,6 +8,7 @@ namespace Xental.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/auth")]
+[EnableRateLimiting("auth")]
 public sealed class AuthController(AuthenticationService authentication) : ControllerBase
 {
     /// <summary>Exchange client credentials for a short-lived JWT access token.</summary>
