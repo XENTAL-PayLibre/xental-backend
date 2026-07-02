@@ -13,7 +13,8 @@ namespace Xental.Api.Controllers;
 /// by signature, not a token) and exempt from rate limiting.
 /// </summary>
 [ApiController]
-[Route("api/v1/webhooks")]
+[Route("webhooks")]              // standard, unversioned path: /webhooks/nomba
+[Route("api/v1/webhooks")]       // kept for backward compatibility
 [AllowAnonymous]
 public sealed class WebhooksController(
     NombaWebhookService webhooks,
