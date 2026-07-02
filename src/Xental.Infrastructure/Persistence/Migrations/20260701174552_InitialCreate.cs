@@ -125,30 +125,6 @@ namespace Xental.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "refresh_tokens",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                    TokenHash = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
-                    ExpiresAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    ConsumedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    RevokedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                    CreatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    UpdatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_refresh_tokens", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_refresh_tokens_tenants_TenantId",
-                        column: x => x.TenantId,
-                        principalTable: "tenants",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "sub_merchants",
                 columns: table => new
                 {
@@ -216,17 +192,6 @@ namespace Xental.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_refresh_tokens_TenantId",
-                table: "refresh_tokens",
-                column: "TenantId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_refresh_tokens_TokenHash",
-                table: "refresh_tokens",
-                column: "TokenHash",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
                 name: "IX_sub_merchants_TenantId_Reference",
                 table: "sub_merchants",
                 columns: new[] { "TenantId", "Reference" },
@@ -253,9 +218,6 @@ namespace Xental.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "password_reset_tokens");
-
-            migrationBuilder.DropTable(
-                name: "refresh_tokens");
 
             migrationBuilder.DropTable(
                 name: "sub_merchants");
