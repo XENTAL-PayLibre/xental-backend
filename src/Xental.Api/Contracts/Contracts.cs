@@ -83,3 +83,27 @@ public sealed record SubMerchantResponse(
     string Reference,
     string Status,
     DateTimeOffset CreatedAtUtc);
+
+// ---- Virtual accounts (Phase 2) ----
+public sealed record CreateVirtualAccountRequest(
+    [Required, StringLength(100, MinimumLength = 1)] string AccountRef,
+    [Required, StringLength(200, MinimumLength = 1)] string Name,
+    [EmailAddress] string? Email,
+    string? Phone,
+    [Range(0, long.MaxValue)] long? ExpectedAmountKobo,
+    DateTimeOffset? ExpiryDateUtc);
+
+public sealed record VirtualAccountResponse(
+    Guid Id,
+    string AccountRef,
+    string AccountNumber,
+    string BankName,
+    string AccountName,
+    long? ExpectedAmountKobo,
+    long AmountPaidKobo,
+    long DeficitKobo,
+    long OverpaymentKobo,
+    string Status,
+    string PaymentState,
+    DateTimeOffset? ExpiryDateUtc,
+    DateTimeOffset CreatedAtUtc);

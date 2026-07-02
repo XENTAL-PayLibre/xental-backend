@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Xental.Application.Common.Interfaces;
 using Xental.Domain.Common;
 using Xental.Domain.Merchants;
+using Xental.Domain.Payments;
 using Xental.Domain.Tenancy;
 
 namespace Xental.Infrastructure.Persistence;
@@ -28,6 +29,9 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();
     public DbSet<SubMerchant> SubMerchants => Set<SubMerchant>();
+    public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<VirtualAccount> VirtualAccounts => Set<VirtualAccount>();
+    public DbSet<Transaction> Transactions => Set<Transaction>();
 
     // Referenced by the tenant query filter; evaluated per query against the
     // current request's tenant. Guid.Empty (no tenant) matches no rows -> deny by default.
@@ -44,6 +48,11 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<RefreshToken>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<ExternalLogin>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<SubMerchant>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Customer>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<VirtualAccount>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        // Transactions are written by the webhook processor without a tenant context (and may
+        // have no tenant when the account is unknown), so no global filter — reads are filtered
+        // explicitly by TenantId in the tenant-scoped services (Phase 5).
 
         // SQLite (test provider) cannot ORDER BY/compare DateTimeOffset; store it as
         // a sortable binary long there. Postgres keeps native timestamptz.

@@ -89,6 +89,21 @@ public sealed class FakeOAuthProvider(string name, ExternalUserProfile profile) 
         Task.FromResult(profile);
 }
 
+/// <summary>Returns a deterministic NUBAN so webhook-matching tests can target it.</summary>
+public sealed class FakeNombaClient(string accountNumber = "1234567890") : INombaClient
+{
+    public string AccountNumber { get; } = accountNumber;
+    public Task<ProvisionedVirtualAccount> CreateVirtualAccountAsync(
+        string accountRef, string accountName, string? email, string? phone, CancellationToken ct = default) =>
+        Task.FromResult(new ProvisionedVirtualAccount(AccountNumber, "Test Bank", accountName, "prov-" + accountRef));
+}
+
+public sealed class FakeSignatureVerifier(bool result = true) : INombaSignatureVerifier
+{
+    public bool Result { get; set; } = result;
+    public bool Verify(byte[] rawBody, string? signatureHeader, string? timestampHeader) => Result;
+}
+
 /// <summary>An isolated SQLite in-memory database bound to a controllable tenant/clock.</summary>
 public sealed class TestDatabase : IDisposable
 {

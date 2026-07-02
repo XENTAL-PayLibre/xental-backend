@@ -1,0 +1,103 @@
+using Microsoft.EntityFrameworkCore;
+using Xental.Application.Common.Exceptions;
+using Xental.Application.Common.Interfaces;
+using Xental.Domain.Common;
+using Xental.Domain.Payments;
+
+namespace Xental.Application.Payments;
+
+public enum WebhookStatus { Processed, Duplicate, Ignored, Review, Reversed }
+
+public sealed record WebhookResult(
+    WebhookStatus Status,
+    string? Reference = null,
+    ReconciliationStatus? Reconciliation = null,
+    PaymentState? PaymentState = null,
+    TransactionFlag? Reason = null);
+
+/// <summary>
+/// Inbound Nomba webhook receiver + reconciliation engine (the core of Xental), implementing
+/// the reconciliation rule book: verify HMAC signature, dedupe by reference, match the credited
+/// NUBAN, and record an immutable <see cref="Transaction"/> with a visible status + internal
+/// reason flag. Inflows are always credited (exact/under/over), never rejected; unknown accounts
+/// go to the review queue; reversals reverse the credit. Idempotent, single transaction.
+/// </summary>
+public sealed class NombaWebhookService(
+    IApplicationDbContext db,
+    INombaSignatureVerifier signatures,
+    IClock clock)
+{
+    public async Task<WebhookResult> ProcessAsync(byte[] rawBody, string? signatureHeader, string? timestampHeader, CancellationToken ct = default)
+    {
+        if (!signatures.Verify(rawBody, signatureHeader, timestampHeader))
+            throw new AuthenticationException("Invalid webhook signature.");
+
+        if (!NombaWebhookParser.TryParse(rawBody, out var inflow))
+            return new WebhookResult(WebhookStatus.Ignored);
+
+        // Idempotency: same reference already recorded => duplicate, no re-credit (rule book).
+        if (await db.Transactions.AnyAsync(t => t.NombaReference == inflow.Reference, ct))
+            return new WebhookResult(WebhookStatus.Duplicate);
+
+        var now = clock.UtcNow;
+        var occurred = inflow.OccurredAtUtc == DateTimeOffset.UnixEpoch ? now : inflow.OccurredAtUtc;
+        var gross = Money.FromKobo(inflow.AmountKobo);
+        var fee = Money.FromKobo(inflow.FeeKobo);
+
+        var account = string.IsNullOrWhiteSpace(inflow.AccountNumber) ? null
+            : await db.VirtualAccounts.IgnoreQueryFilters().FirstOrDefaultAsync(v => v.AccountNumber == inflow.AccountNumber, ct);
+
+        // Reversal: reverse a previously-credited inflow.
+        if (inflow.IsReversal)
+        {
+            account?.ReverseInflow(gross);
+            db.Transactions.Add(new Transaction(
+                account?.TenantId, account?.Id, inflow.Reference, inflow.TransferName,
+                gross, fee, TransactionStatus.Failed, ReconciliationStatus.Reversed,
+                TransactionFlag.Reversed, occurred, now));
+            await db.SaveChangesAsync(ct);
+            return new WebhookResult(WebhookStatus.Reversed, inflow.Reference, ReconciliationStatus.Reversed, account?.PaymentState, TransactionFlag.Reversed);
+        }
+
+        // Unknown account => review queue (rule book), no credit.
+        if (account is null)
+        {
+            db.Transactions.Add(new Transaction(
+                null, null, inflow.Reference, inflow.TransferName,
+                gross, fee, TransactionStatus.Success, ReconciliationStatus.PendingReview,
+                TransactionFlag.InvalidAccount, occurred, null));
+            await db.SaveChangesAsync(ct);
+            return new WebhookResult(WebhookStatus.Review, inflow.Reference, ReconciliationStatus.PendingReview, Reason: TransactionFlag.InvalidAccount);
+        }
+
+        // Reconcile against the expected amount (always credits; classifies the result).
+        var reconciliation = account.ApplyInflow(gross);
+
+        // Name-mismatch flag (third-party deposit / typo). Amount discrepancy takes precedence.
+        var customer = await db.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Id == account.CustomerId, ct);
+        var nameMismatch = NameMismatch(inflow.TransferName, customer?.Name);
+
+        var reason = reconciliation switch
+        {
+            ReconciliationStatus.Underpaid => TransactionFlag.Underpaid,
+            ReconciliationStatus.Overpaid => TransactionFlag.Overpaid,
+            _ => nameMismatch ? TransactionFlag.NameMismatch : (TransactionFlag?)null,
+        };
+
+        db.Transactions.Add(new Transaction(
+            account.TenantId, account.Id, inflow.Reference, inflow.TransferName,
+            gross, fee, TransactionStatus.Success, reconciliation, reason, occurred, now));
+
+        await db.SaveChangesAsync(ct);
+        return new WebhookResult(WebhookStatus.Processed, account.Reference, reconciliation, account.PaymentState, reason);
+    }
+
+    private static bool NameMismatch(string? transferName, string? customerName)
+    {
+        if (string.IsNullOrWhiteSpace(transferName) || string.IsNullOrWhiteSpace(customerName))
+            return false;
+        var a = transferName.Trim().ToLowerInvariant();
+        var b = customerName.Trim().ToLowerInvariant();
+        return a != b && !a.Contains(b) && !b.Contains(a);
+    }
+}
