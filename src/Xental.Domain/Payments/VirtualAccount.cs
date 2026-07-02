@@ -30,6 +30,8 @@ public sealed class VirtualAccount : BaseEntity, ITenantOwned
 
     public VirtualAccountStatus Status { get; private set; }
     public PaymentState PaymentState { get; private set; }
+    /// <summary>Set once collected funds have been swept to the tenant's settlement account.</summary>
+    public DateTimeOffset? SettledAtUtc { get; private set; }
 
     private VirtualAccount() { } // EF
 
@@ -93,6 +95,9 @@ public sealed class VirtualAccount : BaseEntity, ITenantOwned
                 : AmountPaidKobo == expected ? PaymentState.FullyPaid
                 : PaymentState.Overpaid;
     }
+
+    public bool IsSettled => SettledAtUtc is not null;
+    public void MarkSettled(DateTimeOffset at) => SettledAtUtc = at;
 
     public void Close() => Status = VirtualAccountStatus.Closed;
 }

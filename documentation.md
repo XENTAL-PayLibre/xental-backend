@@ -387,6 +387,36 @@ Unhandled `5xx` errors email operators (Resend), throttled by error signature.
 
 ---
 
+## 6d. Settlement & auto-payout (Phase 6 & 7)
+
+Xental closes the collect → reconcile → **settle** loop. Merchants set a single settlement bank
+account and opt into auto-settlement; a background worker then sweeps each **fully-paid** virtual
+account's net collected funds (deposits less provider fees) to that account.
+
+### Settlement settings (dashboard plane)
+- `GET /api/v1/settings/settlement` → current config `{ settlementAccountNumber, settlementBankCode, settlementAccountName, autoSettle, minPayoutKobo, canAutoSettle }`.
+- `PUT /api/v1/settings/settlement` `{ settlementAccountNumber, settlementBankCode, settlementAccountName?, autoSettle, minPayoutKobo }`.
+  - `canAutoSettle` is `true` only when `autoSettle` is on **and** an account number + bank code are set.
+  - `minPayoutKobo` holds back sweeps until the net collected clears the threshold (batching small collections).
+
+### Auto-settlement worker
+- Polls every 30s for accounts where `PaymentState = FullyPaid`, not yet settled, tenant `canAutoSettle`.
+- Net = Σ `netCreditKobo` of the account's deposits; skipped if `< minPayoutKobo`.
+- Creates **one** idempotent transfer per account (`merchantTxRef = settle-{accountId}`), initiates the
+  payout via Nomba, then stamps `settledAtUtc`. Failed payouts stay unsettled (visible as a failed
+  transfer) and are **not** blindly re-sent — decoupled from the webhook hot path.
+
+### Health & readiness
+- `GET /health` — **liveness** (process up).
+- `GET /ready` — **readiness** (database reachable); load balancers gate traffic on this.
+
+### Response hardening
+Every API (non-Swagger) response carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+a JSON-only `Content-Security-Policy`, `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy`,
+`Permissions-Policy`, and (over HTTPS) HSTS.
+
+---
+
 ## 7. Security posture
 
 - **Strong passwords** enforced (12–128 chars, upper+lower+digit+special), bcrypt-hashed
@@ -430,6 +460,8 @@ Set via `.env.local` (local) or real secrets in deployed environments. See `.env
 | `Auth__Google__ClientId` / `__ClientSecret` | Google OAuth login |
 | `Auth__GitHub__ClientId` / `__ClientSecret` | GitHub OAuth login |
 | `Nomba__*` | Provider credentials (parent account + sub-account) |
+| `Nomba__WebhookSecret` | Inbound provider webhook signing key (`nomba-signature`) |
+| `Alerts__Email` | Recipient for operational `5xx` alert emails |
 
 ---
 
@@ -439,9 +471,14 @@ Shipped:
 - ✅ **Stage 1 — Developer identity & API keys** (email/password, test/live keys, scopes).
 - ✅ **Stage 2 — Email verification & password reset** (magic links via Resend).
 - ✅ **Stage 3 — Social login** (Google + GitHub OAuth; links to existing email accounts).
+- ✅ **Phase 2 — Virtual accounts** (provider-backed NUBANs, expected-amount reconciliation).
+- ✅ **Phase 3 — Webhook reconciliation** (signed Nomba inflows → Reconciled/Underpaid/Overpaid per the Rule Book).
+- ✅ **Phase 4 — Developer webhooks** (signed, retried, dead-lettered, replayable outbound events).
+- ✅ **Phase 5 — Transactions, transfers & risk** (filtered statements, idempotent payouts, explainable fraud scoring, insights).
+- ✅ **Phase 6 — Settlement settings & developer portal** (settlement config, polished Swagger + quickstart).
+- ✅ **Phase 7 — Auto-settlement & hardening** (fully-paid sweep worker, security headers, `/ready` readiness probe).
 
 Next:
-- **Payments:** virtual accounts (NUBANs), charges, payouts, and webhooks (provider-backed).
-- **Dashboard hardening:** session/refresh handling, audit log, rate limiting.
+- **PayLibre demo** integration on top of the settlement + reconciliation engine.
 
 _When these ship, this document is updated in the same PR._

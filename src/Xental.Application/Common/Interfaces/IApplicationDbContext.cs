@@ -20,6 +20,7 @@ public interface IApplicationDbContext
     DbSet<VirtualAccount> VirtualAccounts { get; }
     DbSet<Transaction> Transactions { get; }
     DbSet<Transfer> Transfers { get; }
+    DbSet<SettlementConfig> SettlementConfigs { get; }
     DbSet<WebhookEndpoint> WebhookEndpoints { get; }
     DbSet<WebhookDelivery> WebhookDeliveries { get; }
 

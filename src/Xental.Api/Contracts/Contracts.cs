@@ -170,6 +170,23 @@ public sealed record WebhookDeliveryResponse(
     string? LastError,
     DateTimeOffset CreatedAtUtc);
 
+// ---- Settlement settings (Phase 6) ----
+/// <summary>Update the tenant's settlement bank account + auto-settle preferences.</summary>
+public sealed record UpdateSettlementRequest(
+    [StringLength(20)] string? SettlementAccountNumber,
+    [StringLength(16)] string? SettlementBankCode,
+    [StringLength(200)] string? SettlementAccountName,
+    bool AutoSettle,
+    [Range(0, long.MaxValue)] long MinPayoutKobo);
+
+public sealed record SettlementConfigResponse(
+    string? SettlementAccountNumber,
+    string? SettlementBankCode,
+    string? SettlementAccountName,
+    bool AutoSettle,
+    long MinPayoutKobo,
+    bool CanAutoSettle);
+
 // ---- Insights (analytics) ----
 public sealed record InsightsResponse(
     int VirtualAccounts,

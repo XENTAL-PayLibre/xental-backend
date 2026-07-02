@@ -76,6 +76,9 @@ public static class DependencyInjection
         services.AddHttpClient("outbound-webhook");
         services.AddHostedService<WebhookDeliveryWorker>();
 
+        // Auto-settlement: sweep fully-paid accounts to the tenant's bank when they opt in.
+        services.AddHostedService<Payments.SettlementWorker>();
+
         return services;
     }
 }
