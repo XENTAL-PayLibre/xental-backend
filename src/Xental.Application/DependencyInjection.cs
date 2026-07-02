@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<Payments.TransactionQueryService>();
         services.AddScoped<Payments.TransferService>();
         services.AddScoped<Payments.InsightsService>();
+        services.AddScoped<Payments.SettlementConfigService>();
         services.AddScoped<Webhooks.OutboundEventPublisher>();
         services.AddScoped<Webhooks.WebhookEndpointService>();
         return services;

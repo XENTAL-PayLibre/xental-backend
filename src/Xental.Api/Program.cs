@@ -134,8 +134,9 @@ builder.Services.AddCors(options => options.AddPolicy("frontend", policy =>
         policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
 }));
 
-// Health checks.
-builder.Services.AddHealthChecks();
+// Health checks: liveness (/health, always) + readiness (/ready, DB-gated).
+builder.Services.AddHealthChecks()
+    .AddCheck<Xental.Api.Health.DatabaseReadyCheck>("database", tags: ["ready"]);
 
 // --- OpenTelemetry (metrics + traces via OTLP) ---------------------------
 // Enabled only when an OTLP endpoint is configured (set by the deploy when a
@@ -162,7 +163,25 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Xental API",
         Version = "v1",
-        Description = "Xental backend API."
+        Description = """
+            **Xental** — reusable dedicated virtual accounts + automatic reconciliation on Nomba.
+
+            ## Quickstart
+            1. Register a developer account and verify your email at the dashboard.
+            2. Create an API key (Dashboard → API keys) — copy the client secret, shown once.
+            3. Exchange it for an API token: `POST /api/v1/auth/token` with `{clientId, clientSecret}`.
+            4. Send `Authorization: Bearer <token>` on every payments call.
+            5. Create a virtual account: `POST /api/v1/virtual-accounts` (optionally with `expectedAmountKobo`).
+            6. Fund it — the Nomba webhook drives reconciliation; poll `GET /api/v1/transactions` or subscribe to outbound webhooks.
+            7. Configure settlement (Dashboard → `PUT /api/v1/settings/settlement`) to auto-sweep collected funds to your bank.
+
+            ## Auth planes
+            - **Dashboard** (cookie session): developer login, API keys, settings, insights, webhook endpoints.
+            - **API** (bearer token): virtual accounts, transactions, transfers.
+
+            All money is integer **kobo**. Provider (Nomba) inflow webhooks arrive at `POST /webhooks/nomba`.
+            """,
+        Contact = new OpenApiContact { Name = "Xental", Url = new Uri("https://xental.online") },
     });
 
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -202,6 +221,9 @@ using (var scope = app.Services.CreateScope())
         db.Database.Migrate();
 }
 
+// Baseline security response headers on every response (skips the Swagger UI).
+app.UseMiddleware<SecurityHeadersMiddleware>();
+
 // Log each HTTP request through Serilog.
 app.UseSerilogRequestLogging();
 
@@ -236,7 +258,12 @@ app.UseAuthorization();
 app.UseRateLimiter();
 
 app.MapControllers();
+// Liveness: process is up. Readiness: DB reachable (LB gates traffic on this).
 app.MapHealthChecks("/health");
+app.MapHealthChecks("/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready"),
+});
 
 app.Run();
 

@@ -34,6 +34,7 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     public DbSet<VirtualAccount> VirtualAccounts => Set<VirtualAccount>();
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<Transfer> Transfers => Set<Transfer>();
+    public DbSet<SettlementConfig> SettlementConfigs => Set<SettlementConfig>();
     public DbSet<WebhookEndpoint> WebhookEndpoints => Set<WebhookEndpoint>();
     public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
 
@@ -55,6 +56,7 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<Customer>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<VirtualAccount>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<Transfer>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<SettlementConfig>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<WebhookEndpoint>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<WebhookDelivery>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         // Transactions are written by the webhook processor without a tenant context (and may
