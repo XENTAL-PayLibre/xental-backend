@@ -44,8 +44,7 @@ public sealed class PasswordResetService(
     {
         if (string.IsNullOrWhiteSpace(rawToken))
             return false;
-        if (newPassword is null || newPassword.Length < 12)
-            throw new ValidationException("Password must be at least 12 characters.");
+        Common.PasswordPolicy.Validate(newPassword);
 
         var hash = tokenHasher.Hash(rawToken);
         var token = await db.PasswordResetTokens

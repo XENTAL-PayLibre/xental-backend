@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using Xental.Api.Auth;
 using Xental.Api.Authorization;
 using Xental.Api.Contracts;
 using Xental.Application.Authentication;
@@ -11,55 +13,81 @@ using Xental.Infrastructure.Configuration;
 namespace Xental.Api.Controllers;
 
 /// <summary>
-/// Developer account lifecycle (the dashboard plane): registration, login, email
-/// verification, password reset, and profile. Register and login return a
-/// <c>dashboard</c>-scoped JWT used to manage the account and API keys.
+/// Developer account lifecycle (the dashboard plane): registration, email verification,
+/// login (verified accounts only), session refresh, logout, password reset, and profile.
+/// Sessions are cookie-based: login sets HttpOnly+Secure <c>xnt_access</c> (short-lived)
+/// and <c>xnt_refresh</c> (rotating) cookies — tokens are never returned in the body.
+/// Sensitive endpoints are rate-limited.
 /// </summary>
 [ApiController]
 [Route("api/v1/developers")]
+[EnableRateLimiting("auth")]
 public sealed class DevelopersController(
     DeveloperRegistrationService registration,
     DeveloperAuthService auth,
     DeveloperProfileService profiles,
     EmailVerificationService emailVerification,
     PasswordResetService passwordReset,
+    AuthCookieWriter cookies,
     ITenantContext tenant,
     IOptions<AppOptions> app) : ControllerBase
 {
-    /// <summary>Create a developer account and email a verification link.</summary>
-    /// <response code="201">Account created; body carries the dashboard access token.</response>
+    /// <summary>Create an account and email a verification link. Does NOT sign in.</summary>
+    /// <response code="201">Account created; verify the emailed link before logging in.</response>
     /// <response code="409">An account with this email already exists.</response>
     [AllowAnonymous]
     [HttpPost("register")]
-    [ProducesResponseType(typeof(DeveloperAuthResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<DeveloperAuthResponse>> Register(RegisterDeveloperRequest request, CancellationToken ct)
+    public async Task<ActionResult<RegisterResponse>> Register(RegisterDeveloperRequest request, CancellationToken ct)
     {
         var result = await registration.RegisterAsync(request.Name, request.Email, request.Password, ct);
-
-        // Best-effort: a failed email must not fail registration (user can resend).
-        await emailVerification.SendAsync(result.TenantId, ct);
-
-        var response = new DeveloperAuthResponse(
+        await emailVerification.SendAsync(result.TenantId, ct); // best-effort
+        return Created($"/api/v1/developers/{result.TenantId}", new RegisterResponse(
             result.TenantId, result.Email, result.EmailVerified,
-            result.DashboardToken.Token, "Bearer", result.DashboardToken.ExpiresInSeconds);
-        return Created($"/api/v1/developers/{result.TenantId}", response);
+            "Account created. Check your email for a verification link to activate your account."));
     }
 
-    /// <summary>Log in with email + password. Returns a dashboard token.</summary>
-    /// <response code="200">Authenticated; body carries the dashboard access token.</response>
+    /// <summary>Log in with email + password (verified accounts only). Sets session cookies.</summary>
+    /// <response code="200">Authenticated; session cookies set.</response>
     /// <response code="401">Invalid email or password.</response>
+    /// <response code="403">Email not verified.</response>
     [AllowAnonymous]
     [HttpPost("login")]
-    [ProducesResponseType(typeof(DeveloperAuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(SessionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<DeveloperAuthResponse>> Login(LoginRequest request, CancellationToken ct)
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<SessionResponse>> Login(LoginRequest request, CancellationToken ct)
     {
-        var result = await auth.LoginAsync(request.Email, request.Password, ct);
-        var response = new DeveloperAuthResponse(
-            result.TenantId, result.Email, result.EmailVerified,
-            result.Token.Token, "Bearer", result.Token.ExpiresInSeconds);
-        return Ok(response);
+        var session = await auth.LoginAsync(request.Email, request.Password, ct);
+        cookies.SetSession(Response, session);
+        return Ok(new SessionResponse(session.TenantId, session.Email, session.EmailVerified));
+    }
+
+    /// <summary>Rotate the session using the refresh cookie. Sets fresh cookies.</summary>
+    /// <response code="200">Rotated; new session cookies set.</response>
+    /// <response code="401">Missing/invalid/expired refresh cookie.</response>
+    [AllowAnonymous]
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(SessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<SessionResponse>> Refresh(CancellationToken ct)
+    {
+        var refresh = Request.Cookies[AuthCookieWriter.RefreshCookie] ?? string.Empty;
+        var session = await auth.RefreshAsync(refresh, ct);
+        cookies.SetSession(Response, session);
+        return Ok(new SessionResponse(session.TenantId, session.Email, session.EmailVerified));
+    }
+
+    /// <summary>Revoke the refresh token and clear the session cookies.</summary>
+    [AllowAnonymous]
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(CancellationToken ct)
+    {
+        await auth.LogoutAsync(Request.Cookies[AuthCookieWriter.RefreshCookie] ?? string.Empty, ct);
+        cookies.Clear(Response);
+        return NoContent();
     }
 
     /// <summary>The current account's profile.</summary>
@@ -103,7 +131,7 @@ public sealed class DevelopersController(
         return Accepted();
     }
 
-    /// <summary>Set a new password from a reset token.</summary>
+    /// <summary>Set a new password from a reset token (must meet the strong-password policy).</summary>
     /// <response code="204">Password updated.</response>
     /// <response code="400">Token invalid/expired, or password too weak.</response>
     [AllowAnonymous]

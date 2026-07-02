@@ -41,7 +41,7 @@ public sealed class JwtTokenService : IJwtTokenService
             new("email_verified", tenant.EmailVerified ? "true" : "false"),
             new("scope", DashboardScope),
         };
-        return Issue(claims);
+        return Issue(claims, _options.DashboardTokenLifetimeSeconds);
     }
 
     /// <summary>Token for the integration API, carrying the key mode (test/live).</summary>
@@ -55,13 +55,13 @@ public sealed class JwtTokenService : IJwtTokenService
             new("key_mode", apiKey.Mode.ToString().ToLowerInvariant()),
             new("kid", apiKey.Id.ToString()),
         };
-        return Issue(claims);
+        return Issue(claims, _options.AccessTokenLifetimeSeconds);
     }
 
-    private AccessToken Issue(List<Claim> claims)
+    private AccessToken Issue(List<Claim> claims, int lifetimeSeconds)
     {
         var now = _clock.UtcNow;
-        var expires = now.AddSeconds(_options.AccessTokenLifetimeSeconds);
+        var expires = now.AddSeconds(lifetimeSeconds);
         claims.Add(new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()));
 
         var token = new JwtSecurityToken(
@@ -73,6 +73,6 @@ public sealed class JwtTokenService : IJwtTokenService
             signingCredentials: _credentials);
 
         var jwt = new JwtSecurityTokenHandler().WriteToken(token);
-        return new AccessToken(jwt, _options.AccessTokenLifetimeSeconds, expires);
+        return new AccessToken(jwt, lifetimeSeconds, expires);
     }
 }

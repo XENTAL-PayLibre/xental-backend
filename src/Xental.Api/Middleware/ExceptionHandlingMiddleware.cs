@@ -18,6 +18,7 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
             {
                 ValidationException => (StatusCodes.Status400BadRequest, "Validation failed"),
                 AuthenticationException => (StatusCodes.Status401Unauthorized, "Authentication failed"),
+                EmailNotVerifiedException => (StatusCodes.Status403Forbidden, "Email not verified"),
                 ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
                 NotFoundException => (StatusCodes.Status404NotFound, "Not found"),
                 NombaIntegrationException => (StatusCodes.Status502BadGateway, "Upstream provider error"),

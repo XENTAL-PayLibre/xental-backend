@@ -7,6 +7,7 @@ using Xental.Application.Merchants;
 using Xental.Application.Tenancy;
 using Xental.Domain.Merchants;
 using Xental.Domain.Tenancy;
+using Xental.Infrastructure.Persistence;
 using Xental.Infrastructure.Security;
 using Xental.UnitTests.TestSupport;
 
@@ -15,32 +16,36 @@ namespace Xental.UnitTests;
 public class DeveloperRegistrationServiceTests
 {
     [Fact]
-    public async Task Register_hashes_password_and_returns_dashboard_token()
+    public async Task Register_hashes_password_and_starts_unverified()
     {
         using var db = new TestDatabase();
         var hasher = TestSecurity.PasswordHasher();
         await using var ctx = db.CreateContext();
-        var service = new DeveloperRegistrationService(ctx, hasher, TestSecurity.Jwt());
+        var service = new DeveloperRegistrationService(ctx, hasher);
 
-        var result = await service.RegisterAsync("Ada Lovelace", "Ada@Example.com", "correct-horse-battery");
+        var result = await service.RegisterAsync("Ada Lovelace", "Ada@Example.com", TestSecurity.StrongPassword);
 
         result.Email.Should().Be("ada@example.com", "emails are normalized");
-        result.EmailVerified.Should().BeFalse();
-        result.DashboardToken.Token.Should().NotBeNullOrWhiteSpace();
+        result.EmailVerified.Should().BeFalse("registration does not verify or log in");
 
         var tenant = await ctx.Tenants.SingleAsync();
-        tenant.PasswordHash.Should().NotBeNullOrEmpty().And.NotContain("correct-horse-battery");
-        hasher.Verify("correct-horse-battery", tenant.PasswordHash).Should().BeTrue();
+        tenant.PasswordHash.Should().NotBeNullOrEmpty().And.NotContain(TestSecurity.StrongPassword);
+        hasher.Verify(TestSecurity.StrongPassword, tenant.PasswordHash).Should().BeTrue();
     }
 
-    [Fact]
-    public async Task Register_rejects_short_password()
+    [Theory]
+    [InlineData("short1!A")]           // too short
+    [InlineData("alllowercase123!")]   // no uppercase
+    [InlineData("ALLUPPERCASE123!")]   // no lowercase
+    [InlineData("NoDigitsHere!!!")]    // no digit
+    [InlineData("NoSpecials12345")]    // no special char
+    public async Task Register_rejects_weak_password(string weak)
     {
         using var db = new TestDatabase();
         await using var ctx = db.CreateContext();
-        var service = new DeveloperRegistrationService(ctx, TestSecurity.PasswordHasher(), TestSecurity.Jwt());
+        var service = new DeveloperRegistrationService(ctx, TestSecurity.PasswordHasher());
 
-        var act = () => service.RegisterAsync("Ada", "ada@example.com", "short");
+        var act = () => service.RegisterAsync("Ada", "ada@example.com", weak);
         await act.Should().ThrowAsync<ValidationException>();
     }
 
@@ -50,48 +55,67 @@ public class DeveloperRegistrationServiceTests
         using var db = new TestDatabase();
         var hasher = TestSecurity.PasswordHasher();
         await using (var ctx = db.CreateContext())
-            await new DeveloperRegistrationService(ctx, hasher, TestSecurity.Jwt())
-                .RegisterAsync("Ada", "dup@example.com", "correct-horse-battery");
+            await new DeveloperRegistrationService(ctx, hasher)
+                .RegisterAsync("Ada", "dup@example.com", TestSecurity.StrongPassword);
 
         await using var ctx2 = db.CreateContext();
-        var act = () => new DeveloperRegistrationService(ctx2, hasher, TestSecurity.Jwt())
-            .RegisterAsync("Ada 2", "DUP@example.com", "another-long-password");
+        var act = () => new DeveloperRegistrationService(ctx2, hasher)
+            .RegisterAsync("Ada 2", "DUP@example.com", TestSecurity.StrongPassword);
         await act.Should().ThrowAsync<ConflictException>();
     }
 }
 
 public class DeveloperAuthServiceTests
 {
-    private static async Task RegisterAsync(TestDatabase db, string email, string password)
+    private static DeveloperAuthService Auth(TestDatabase db, XentalDbContext ctx) =>
+        new(ctx, TestSecurity.PasswordHasher(), new Sha256TokenHasher(), TestSecurity.Sessions(ctx, db.Clock), db.Clock);
+
+    private static async Task RegisterAsync(TestDatabase db, string email, bool verified)
     {
         await using var ctx = db.CreateContext();
-        await new DeveloperRegistrationService(ctx, TestSecurity.PasswordHasher(), TestSecurity.Jwt())
-            .RegisterAsync("Dev", email, password);
+        var reg = await new DeveloperRegistrationService(ctx, TestSecurity.PasswordHasher())
+            .RegisterAsync("Dev", email, TestSecurity.StrongPassword);
+        if (verified)
+        {
+            var t = await ctx.Tenants.SingleAsync(x => x.Id == reg.TenantId);
+            t.MarkEmailVerified();
+            await ctx.SaveChangesAsync();
+        }
     }
 
     [Fact]
-    public async Task Valid_login_returns_dashboard_token()
+    public async Task Verified_login_issues_a_session()
     {
         using var db = new TestDatabase();
-        await RegisterAsync(db, "dev@example.com", "correct-horse-battery");
+        await RegisterAsync(db, "dev@example.com", verified: true);
 
         await using var ctx = db.CreateContext();
-        var result = await new DeveloperAuthService(ctx, TestSecurity.PasswordHasher(), TestSecurity.Jwt())
-            .LoginAsync("Dev@example.com", "correct-horse-battery");
+        var session = await Auth(db, ctx).LoginAsync("Dev@example.com", TestSecurity.StrongPassword);
 
-        result.Email.Should().Be("dev@example.com");
-        result.Token.Token.Should().NotBeNullOrWhiteSpace();
+        session.Email.Should().Be("dev@example.com");
+        session.Access.Token.Should().NotBeNullOrWhiteSpace();
+        session.RefreshToken.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task Unverified_login_is_forbidden()
+    {
+        using var db = new TestDatabase();
+        await RegisterAsync(db, "dev@example.com", verified: false);
+
+        await using var ctx = db.CreateContext();
+        var act = () => Auth(db, ctx).LoginAsync("dev@example.com", TestSecurity.StrongPassword);
+        await act.Should().ThrowAsync<EmailNotVerifiedException>();
     }
 
     [Fact]
     public async Task Wrong_password_is_rejected()
     {
         using var db = new TestDatabase();
-        await RegisterAsync(db, "dev@example.com", "correct-horse-battery");
+        await RegisterAsync(db, "dev@example.com", verified: true);
 
         await using var ctx = db.CreateContext();
-        var act = () => new DeveloperAuthService(ctx, TestSecurity.PasswordHasher(), TestSecurity.Jwt())
-            .LoginAsync("dev@example.com", "wrong-password-here");
+        var act = () => Auth(db, ctx).LoginAsync("dev@example.com", "Wr0ng-Passw0rd!");
         await act.Should().ThrowAsync<AuthenticationException>();
     }
 
@@ -100,8 +124,44 @@ public class DeveloperAuthServiceTests
     {
         using var db = new TestDatabase();
         await using var ctx = db.CreateContext();
-        var act = () => new DeveloperAuthService(ctx, TestSecurity.PasswordHasher(), TestSecurity.Jwt())
-            .LoginAsync("nobody@example.com", "correct-horse-battery");
+        var act = () => Auth(db, ctx).LoginAsync("nobody@example.com", TestSecurity.StrongPassword);
+        await act.Should().ThrowAsync<AuthenticationException>();
+    }
+
+    [Fact]
+    public async Task Refresh_rotates_and_old_token_is_rejected()
+    {
+        using var db = new TestDatabase();
+        await RegisterAsync(db, "dev@example.com", verified: true);
+
+        string refresh1;
+        await using (var ctx = db.CreateContext())
+            refresh1 = (await Auth(db, ctx).LoginAsync("dev@example.com", TestSecurity.StrongPassword)).RefreshToken;
+
+        string refresh2;
+        await using (var ctx = db.CreateContext())
+            refresh2 = (await Auth(db, ctx).RefreshAsync(refresh1)).RefreshToken;
+        refresh2.Should().NotBe(refresh1);
+
+        await using var ctx2 = db.CreateContext();
+        var act = () => Auth(db, ctx2).RefreshAsync(refresh1); // consumed token
+        await act.Should().ThrowAsync<AuthenticationException>();
+    }
+
+    [Fact]
+    public async Task Logout_revokes_the_refresh_token()
+    {
+        using var db = new TestDatabase();
+        await RegisterAsync(db, "dev@example.com", verified: true);
+
+        string refresh;
+        await using (var ctx = db.CreateContext())
+            refresh = (await Auth(db, ctx).LoginAsync("dev@example.com", TestSecurity.StrongPassword)).RefreshToken;
+        await using (var ctx = db.CreateContext())
+            await Auth(db, ctx).LogoutAsync(refresh);
+
+        await using var ctx2 = db.CreateContext();
+        var act = () => Auth(db, ctx2).RefreshAsync(refresh);
         await act.Should().ThrowAsync<AuthenticationException>();
     }
 }

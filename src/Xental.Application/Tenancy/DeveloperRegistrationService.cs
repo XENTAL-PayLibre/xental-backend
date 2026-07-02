@@ -1,20 +1,22 @@
 using Microsoft.EntityFrameworkCore;
+using Xental.Application.Common;
 using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
 using Xental.Domain.Tenancy;
 
 namespace Xental.Application.Tenancy;
 
-public sealed record RegisteredDeveloper(Guid TenantId, string Email, bool EmailVerified, AccessToken DashboardToken);
+public sealed record RegisteredDeveloper(Guid TenantId, string Email, bool EmailVerified);
 
 /// <summary>
-/// Registers a developer account (email + password) and returns a dashboard token.
-/// Passwords are bcrypt-hashed; emails are normalized and unique.
+/// Registers a developer account (email + password). Registration does NOT sign the
+/// user in — the account starts unverified and must confirm its email (magic link)
+/// before it can log in. Passwords are bcrypt-hashed and must meet the strong-password
+/// policy; emails are normalized and unique.
 /// </summary>
 public sealed class DeveloperRegistrationService(
     IApplicationDbContext db,
-    IPasswordHasher passwords,
-    IJwtTokenService jwt)
+    IPasswordHasher passwords)
 {
     public async Task<RegisteredDeveloper> RegisterAsync(string name, string email, string password, CancellationToken ct = default)
     {
@@ -22,8 +24,7 @@ public sealed class DeveloperRegistrationService(
             throw new ValidationException("Name is required.");
         if (string.IsNullOrWhiteSpace(email))
             throw new ValidationException("Email is required.");
-        if (password is null || password.Length < 12)
-            throw new ValidationException("Password must be at least 12 characters.");
+        PasswordPolicy.Validate(password);
 
         var normalizedEmail = Tenant.NormalizeEmail(email);
         if (await db.Tenants.AnyAsync(t => t.Email == normalizedEmail, ct))
@@ -33,6 +34,6 @@ public sealed class DeveloperRegistrationService(
         db.Tenants.Add(tenant);
         await db.SaveChangesAsync(ct);
 
-        return new RegisteredDeveloper(tenant.Id, tenant.Email, tenant.EmailVerified, jwt.IssueDashboardToken(tenant));
+        return new RegisteredDeveloper(tenant.Id, tenant.Email, tenant.EmailVerified);
     }
 }

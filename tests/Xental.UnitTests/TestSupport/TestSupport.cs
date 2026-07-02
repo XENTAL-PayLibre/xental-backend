@@ -15,6 +15,9 @@ public sealed class FakeClock(DateTimeOffset now) : IClock
 /// <summary>Real security primitives wired with test-friendly options.</summary>
 public static class TestSecurity
 {
+    /// <summary>A password that satisfies the strong-password policy.</summary>
+    public const string StrongPassword = "Str0ng-Passw0rd!";
+
     public static BcryptPasswordHasher PasswordHasher() =>
         new(Options.Create(new AuthOptions()));
 
@@ -25,7 +28,13 @@ public static class TestSecurity
             Audience = "xental-api",
             SigningKey = "0123456789012345678901234567890123456789",
             AccessTokenLifetimeSeconds = 3600,
+            DashboardTokenLifetimeSeconds = 900,
         }), clock ?? new FakeClock(DateTimeOffset.Parse("2026-01-01T00:00:00Z")));
+
+    /// <summary>Builds a SessionIssuer over the given context (for login/refresh/oauth tests).</summary>
+    public static Xental.Application.Authentication.SessionIssuer Sessions(
+        Xental.Infrastructure.Persistence.XentalDbContext ctx, IClock clock) =>
+        new(ctx, Jwt(clock), new FakeTokenGenerator(), new Sha256TokenHasher(), new FakeLinkBuilder(), clock);
 }
 
 public sealed class FakeTenantContext : ITenantContext
@@ -36,7 +45,9 @@ public sealed class FakeTenantContext : ITenantContext
 
 public sealed class FakeTokenGenerator : ITokenGenerator
 {
-    private int _counter;
+    // Static so tokens are unique across generator instances (e.g. rotation across
+    // multiple DbContexts), preventing duplicate token-hash collisions in tests.
+    private static int _counter;
     public string Generate(string prefix, int bytes = 24) => $"{prefix}_test_{Interlocked.Increment(ref _counter)}";
 }
 
@@ -64,6 +75,7 @@ public sealed class FakeLinkBuilder : ILinkBuilder
 {
     public TimeSpan EmailVerificationTtl { get; set; } = TimeSpan.FromMinutes(30);
     public TimeSpan PasswordResetTtl { get; set; } = TimeSpan.FromMinutes(30);
+    public TimeSpan RefreshTokenLifetime { get; set; } = TimeSpan.FromDays(14);
 
     public string EmailVerificationLink(string rawToken) => rawToken;
     public string PasswordResetLink(string rawToken) => rawToken;
