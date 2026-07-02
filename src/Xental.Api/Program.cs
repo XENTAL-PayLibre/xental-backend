@@ -1,9 +1,19 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
+using Xental.Api.Auth;
+using Xental.Api.Authorization;
+using Xental.Api.Middleware;
 using Xental.Application;
+using Xental.Application.Common.Interfaces;
 using Xental.Infrastructure;
+using Xental.Infrastructure.Persistence;
+using Xental.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +40,40 @@ builder.Services.AddControllers();
 // Clean Architecture layers.
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Current-tenant resolution from the JWT.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+
+// JWT bearer authentication (client-credentials tokens).
+var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtOptions.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.SigningKey)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromSeconds(30),
+        };
+    });
+// Two token planes, separated by the `scope` claim:
+//   dashboard -> email/password login, manages API keys
+//   api       -> client-credentials, calls the payments API
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AuthPolicies.Dashboard, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Dashboard));
+    options.AddPolicy(AuthPolicies.Api, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Api));
+});
 
 // Health checks.
 builder.Services.AddHealthChecks();
@@ -61,12 +105,45 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description = "Xental backend API."
     });
+
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Paste the JWT from POST /api/v1/auth/token.",
+    });
+    options.AddSecurityRequirement(_ => new OpenApiSecurityRequirement
+    {
+        [new OpenApiSecuritySchemeReference("Bearer")] = new List<string>(),
+    });
+
+    // Surface the controller/action XML doc comments in the Swagger UI.
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+        options.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
 });
 
 var app = builder.Build();
 
+// Apply EF Core migrations on startup for the relational (Postgres) provider so a
+// freshly-provisioned environment gets its schema automatically. Skipped for the
+// SQLite test host, which creates the schema itself.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<XentalDbContext>();
+    if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        db.Database.Migrate();
+}
+
 // Log each HTTP request through Serilog.
 app.UseSerilogRequestLogging();
+
+// Translate application exceptions to ProblemDetails.
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 // --- HTTP request pipeline ----------------------------------------------
 
@@ -87,9 +164,13 @@ if (!runningInContainer)
     app.UseHttpsRedirection();
 }
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 app.MapHealthChecks("/health");
 
 app.Run();
+
+// Exposed so the integration test host (WebApplicationFactory<Program>) can boot the API.
+public partial class Program { }

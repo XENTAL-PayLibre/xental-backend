@@ -4,13 +4,14 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Restore first (layer-cached on project/solution changes only).
-COPY Xental.slnx ./
+# Restore first (layer-cached on project changes only). Restore the API project,
+# not the solution — the solution also references the test projects, which are
+# intentionally not copied into the image.
 COPY src/Xental.Domain/Xental.Domain.csproj                 src/Xental.Domain/
 COPY src/Xental.Application/Xental.Application.csproj        src/Xental.Application/
 COPY src/Xental.Infrastructure/Xental.Infrastructure.csproj src/Xental.Infrastructure/
 COPY src/Xental.Api/Xental.Api.csproj                        src/Xental.Api/
-RUN dotnet restore Xental.slnx
+RUN dotnet restore src/Xental.Api/Xental.Api.csproj
 
 # Copy the rest and publish.
 COPY . .

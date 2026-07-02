@@ -5,4 +5,8 @@
     <Project Path="src/Xental.Domain/Xental.Domain.csproj" />
     <Project Path="src/Xental.Infrastructure/Xental.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Xental.IntegrationTests/Xental.IntegrationTests.csproj" />
+    <Project Path="tests/Xental.UnitTests/Xental.UnitTests.csproj" />
+  </Folder>
 </Solution>
