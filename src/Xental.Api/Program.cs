@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using OpenTelemetry.Metrics;
@@ -11,6 +12,7 @@ using Xental.Api.Middleware;
 using Xental.Application;
 using Xental.Application.Common.Interfaces;
 using Xental.Infrastructure;
+using Xental.Infrastructure.Persistence;
 using Xental.Infrastructure.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -126,6 +128,16 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+// Apply EF Core migrations on startup for the relational (Postgres) provider so a
+// freshly-provisioned environment gets its schema automatically. Skipped for the
+// SQLite test host, which creates the schema itself.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<XentalDbContext>();
+    if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
+        db.Database.Migrate();
+}
 
 // Log each HTTP request through Serilog.
 app.UseSerilogRequestLogging();
