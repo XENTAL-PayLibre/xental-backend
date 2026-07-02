@@ -36,6 +36,9 @@ public sealed class ResendEmailSender(
              <p>This link expires soon. If you didn't request this, you can safely ignore this email — your password won't change.</p>
              """, ct);
 
+    public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
+        SendAsync(toEmail, subject, html, ct);
+
     private async Task SendAsync(string toEmail, string subject, string html, CancellationToken ct)
     {
         if (!_options.IsConfigured)

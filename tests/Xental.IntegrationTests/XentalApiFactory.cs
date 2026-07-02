@@ -29,6 +29,9 @@ internal sealed class FakeEmailSender : IEmailSender
         return Task.CompletedTask;
     }
 
+    public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
     public static string? VerificationTokenFor(string email) =>
         Verify.TryGetValue(email, out var link) ? TokenFromLink(link) : null;
 

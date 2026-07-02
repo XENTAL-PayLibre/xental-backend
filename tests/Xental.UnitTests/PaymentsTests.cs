@@ -174,7 +174,10 @@ public class NombaWebhookServiceTests
     }
 
     private static NombaWebhookService Service(TestDatabase db, XentalDbContext ctx, bool sigOk = true) =>
-        new(ctx, new FakeSignatureVerifier(sigOk), db.Clock);
+        new(ctx, new FakeSignatureVerifier(sigOk),
+            new RiskEvaluator(ctx, db.Clock),
+            new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock),
+            db.Clock);
 
     [Fact]
     public async Task Valid_exact_inflow_reconciles_and_writes_one_ledger_entry()

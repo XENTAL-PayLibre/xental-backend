@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Xental.Domain.Merchants;
 using Xental.Domain.Payments;
 using Xental.Domain.Tenancy;
+using Xental.Domain.Webhooks;
 
 namespace Xental.Application.Common.Interfaces;
 
@@ -18,6 +19,9 @@ public interface IApplicationDbContext
     DbSet<Customer> Customers { get; }
     DbSet<VirtualAccount> VirtualAccounts { get; }
     DbSet<Transaction> Transactions { get; }
+    DbSet<Transfer> Transfers { get; }
+    DbSet<WebhookEndpoint> WebhookEndpoints { get; }
+    DbSet<WebhookDelivery> WebhookDeliveries { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

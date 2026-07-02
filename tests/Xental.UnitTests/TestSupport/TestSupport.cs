@@ -68,6 +68,9 @@ public sealed class FakeEmailSender : IEmailSender
         LastResetLink = resetLink;
         return Task.CompletedTask;
     }
+
+    public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
+        Task.CompletedTask;
 }
 
 /// <summary>Returns the raw token verbatim as the "link" so tests can consume it directly.</summary>
@@ -93,9 +96,20 @@ public sealed class FakeOAuthProvider(string name, ExternalUserProfile profile) 
 public sealed class FakeNombaClient(string accountNumber = "1234567890") : INombaClient
 {
     public string AccountNumber { get; } = accountNumber;
+    public bool TransferSucceeds { get; set; } = true;
+
     public Task<ProvisionedVirtualAccount> CreateVirtualAccountAsync(
         string accountRef, string accountName, string? email, string? phone, CancellationToken ct = default) =>
         Task.FromResult(new ProvisionedVirtualAccount(AccountNumber, "Test Bank", accountName, "prov-" + accountRef));
+
+    public Task<BankAccountName> LookupBankAccountAsync(string accountNumber, string bankCode, CancellationToken ct = default) =>
+        Task.FromResult(new BankAccountName("Resolved Name", accountNumber, bankCode));
+
+    public Task<TransferResult> InitiateTransferAsync(
+        string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? narration, CancellationToken ct = default) =>
+        Task.FromResult(TransferSucceeds
+            ? new TransferResult(true, "prov-" + merchantTxRef, null)
+            : new TransferResult(false, null, "declined"));
 }
 
 public sealed class FakeSignatureVerifier(bool result = true) : INombaSignatureVerifier

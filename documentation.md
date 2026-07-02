@@ -2,9 +2,9 @@
 
 > **Living document.** This is the source of truth for how the Xental backend is used,
 > written so the frontend (dashboard + docs site) can be built against it. It is updated
-> as the system evolves. Last updated for **Phase 2 & 3 — virtual accounts (NUBANs) and the
-> webhook reconciliation engine** (on top of Stage 4 auth). Section 3 is authoritative for
-> the auth model; Section 6 for payments/reconciliation.
+> as the system evolves. Last updated for **Phase 4 & 5 — outbound developer webhooks,
+> transactions/transfers, plus fraud scoring, insights analytics, and server-error alerts**
+> (on top of virtual accounts + reconciliation). Section 3 = auth; Section 6 = payments.
 
 ---
 
@@ -349,6 +349,41 @@ Edge cases handled: exact/under/over (reconcile + credit), **duplicate reference
 (idempotent, no double-credit), **unknown account → review queue**, **reversal → reverse the
 credit**, delayed webhook → processed normally, multiple transfers → each reconciled
 independently, name mismatch → credited but flagged.
+
+---
+
+## 6c. Developer webhooks, transactions & transfers (Phase 4 & 5)
+
+### Outbound webhooks (dashboard plane)
+Register callback URLs to receive enriched, **pre-reconciled** events. Xental signs every
+delivery (`x-xental-signature` = hex HMAC-SHA256 of the raw body with your endpoint secret),
+retries with exponential backoff (up to 8 attempts) and **dead-letters** — replayable.
+- `POST /api/v1/webhook-endpoints` `{ "url": "https://…" }` → `201` with a one-time `signingSecret`. URLs are **SSRF-guarded** (HTTPS + public host only).
+- `GET /api/v1/webhook-endpoints`, `DELETE /api/v1/webhook-endpoints/{id}`
+- `GET /api/v1/webhook-endpoints/deliveries?status=DeadLetter` — delivery log
+- `POST /api/v1/webhook-endpoints/deliveries/{id}/replay` — requeue
+- Event: `deposit.reconciled` with `{ accountRef, amountKobo, netCreditKobo, reconciliation, paymentState, reason, riskScore, … }`.
+
+### Transactions (API plane)
+- `GET /api/v1/transactions?from=&to=&status=&reconciliation=&accountRef=&take=` — filtered statement
+- `GET /api/v1/transactions/{reference}`
+
+### Transfers / payouts (API plane) — idempotent on `merchantTxRef`
+- `POST /api/v1/transfers/bank/lookup` `{ accountNumber, bankCode }` → account name
+- `POST /api/v1/transfers/bank` `{ merchantTxRef, amountKobo, accountNumber, bankCode, narration? }` → `201`
+- `GET /api/v1/transfers/{merchantTxRef}`
+
+### Insights (dashboard plane)
+- `GET /api/v1/insights` → collection rate, outstanding deficit, reconciliation breakdown, review + high-risk counts.
+
+### Fraud / risk scoring (built into reconciliation)
+Every deposit gets a 0–100 `riskScore` from explainable signals — name mismatch, large
+overpayment, deposit velocity, and **payer-name reuse across many accounts** (mule pattern).
+Score ≥ 70 routes the deposit to the **review queue** (`PendingReview` / `ManualReview`) even
+when the amount reconciles.
+
+### Operational alerts
+Unhandled `5xx` errors email operators (Resend), throttled by error signature.
 
 ---
 
