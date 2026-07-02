@@ -62,6 +62,8 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(options.BaseUrl);
         });
         services.AddSingleton<INombaTokenProvider, NombaTokenProvider>();
+        services.AddScoped<INombaClient, NombaClient>();
+        services.AddSingleton<INombaSignatureVerifier, NombaSignatureVerifier>();
 
         return services;
     }

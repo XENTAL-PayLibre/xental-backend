@@ -18,4 +18,10 @@ public sealed class NombaOptions
     /// <summary>Serve a cached token until this many seconds have passed. Nomba tokens
     /// expire in 30 min, so refresh ~5 min early (default 25 min).</summary>
     public int TokenRefreshSeconds { get; set; } = 1500;
+
+    /// <summary>Shared secret used to verify inbound Nomba webhook signatures (HMAC-SHA256).</summary>
+    public string WebhookSecret { get; set; } = string.Empty;
+
+    /// <summary>Header carrying the webhook signature.</summary>
+    public string WebhookSignatureHeader { get; set; } = "nomba-signature";
 }

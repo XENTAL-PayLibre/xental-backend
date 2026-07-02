@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Xental.Domain.Merchants;
+using Xental.Domain.Payments;
 using Xental.Domain.Tenancy;
 
 namespace Xental.Application.Common.Interfaces;
@@ -14,6 +15,9 @@ public interface IApplicationDbContext
     DbSet<RefreshToken> RefreshTokens { get; }
     DbSet<ExternalLogin> ExternalLogins { get; }
     DbSet<SubMerchant> SubMerchants { get; }
+    DbSet<Customer> Customers { get; }
+    DbSet<VirtualAccount> VirtualAccounts { get; }
+    DbSet<Transaction> Transactions { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

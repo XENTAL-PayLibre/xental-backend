@@ -2,9 +2,9 @@
 
 > **Living document.** This is the source of truth for how the Xental backend is used,
 > written so the frontend (dashboard + docs site) can be built against it. It is updated
-> as the system evolves. Last updated for **Stage 4 — Cookie-based sessions (HttpOnly access
-> + rotating refresh), verify-before-login, strong passwords, rate limiting, and CORS**.
-> Section 3 is authoritative for the auth model.
+> as the system evolves. Last updated for **Phase 2 & 3 — virtual accounts (NUBANs) and the
+> webhook reconciliation engine** (on top of Stage 4 auth). Section 3 is authoritative for
+> the auth model; Section 6 for payments/reconciliation.
 
 ---
 
@@ -301,6 +301,53 @@ Dashboard token carries: `sub`/`tenant_id`, `email`, `email_verified`, `scope=da
 API token carries: `sub`/`tenant_id`, `scope=api`, `key_mode` (`test`/`live`), `kid`
 (the API key id). The UI can read `email_verified` from the dashboard token to prompt for
 verification.
+
+---
+
+## 6b. Payments — virtual accounts & reconciliation (Phase 2 & 3)
+
+### Provision a NUBAN (API plane, `api` token)
+```
+POST /api/v1/virtual-accounts
+{ "accountRef": "stu-001", "name": "Ada Payer", "email": "ada@x.com",
+  "phone": null, "expectedAmountKobo": 500000, "expiryDateUtc": null }
+```
+Maps a stable `accountRef` to a persistent NUBAN (via Nomba) and, optionally, an
+`expectedAmountKobo` used to reconcile inflows. `201` returns the account number/bank/name
+plus `amountPaidKobo`, `deficitKobo`, `overpaymentKobo`, `paymentState`. `409` if the
+`accountRef` already has an account. `GET /api/v1/virtual-accounts/{accountRef}` fetches it.
+
+### Nomba webhook receiver
+```
+POST /api/v1/webhooks/nomba          (anonymous; verified by signature)
+```
+Verifies the `nomba-signature` header — `Base64(HMAC-SHA256(secret, payload))` over the nine
+colon-delimited fields Nomba signs (incl. the `nomba-timestamp` header) — then dedupes,
+matches the credited NUBAN, and reconciles. Always returns `200` for a valid signature (so
+Nomba doesn't retry); `401` for a bad/missing signature. Body reports
+`{ status, reference, reconciliation, paymentState, reason }`.
+
+### Reconciliation rule book
+Money is integer **kobo**. Inflows are **always credited** (never rejected); the net credit
+is the amount **less provider fees**. Each deposit is recorded as an immutable `transaction`
+(id, dedicated_account_id, amount/fee/net, `status`, `reconciliation`, `reason`,
+nomba_reference, transfer_name, created_at, reconciled_at).
+
+| Reconciliation status | Meaning |
+|---|---|
+| `Reconciled` | Amount matches expected (or account has no expectation) |
+| `Underpaid` | Below expected — credited, deficit tracked |
+| `Overpaid` | Above expected — credited, rolling credit tracked |
+| `PendingReview` | Unknown account number → review queue |
+| `Reversed` | Bank reversed the transfer → credit backed out |
+
+Internal `reason` flags (not customer-facing): `NameMismatch`, `Underpaid`, `Overpaid`,
+`Reversed`, `InvalidAccount`, `Duplicate`, `ManualReview`.
+
+Edge cases handled: exact/under/over (reconcile + credit), **duplicate reference → ignored**
+(idempotent, no double-credit), **unknown account → review queue**, **reversal → reverse the
+credit**, delayed webhook → processed normally, multiple transfers → each reconciled
+independently, name mismatch → credited but flagged.
 
 ---
 
