@@ -319,8 +319,9 @@ plus `amountPaidKobo`, `deficitKobo`, `overpaymentKobo`, `paymentState`. `409` i
 
 ### Nomba webhook receiver
 ```
-POST /api/v1/webhooks/nomba          (anonymous; verified by signature)
+POST /webhooks/nomba                 (anonymous; verified by signature)
 ```
+(Also reachable at the legacy `/api/v1/webhooks/nomba`.)
 Verifies the `nomba-signature` header — `Base64(HMAC-SHA256(secret, payload))` over the nine
 colon-delimited fields Nomba signs (incl. the `nomba-timestamp` header) — then dedupes,
 matches the credited NUBAN, and reconciles. Always returns `200` for a valid signature (so
