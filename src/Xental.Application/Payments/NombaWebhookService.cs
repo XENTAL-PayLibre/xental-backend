@@ -28,6 +28,8 @@ public sealed class NombaWebhookService(
     INombaSignatureVerifier signatures,
     RiskEvaluator risk,
     OutboundEventPublisher outbound,
+    IReconciliationNotifier notifier,
+    RuleEngine rules,
     IClock clock)
 {
     public async Task<WebhookResult> ProcessAsync(byte[] rawBody, string? signatureHeader, string? timestampHeader, CancellationToken ct = default)
@@ -38,6 +40,16 @@ public sealed class NombaWebhookService(
         if (!NombaWebhookParser.TryParse(rawBody, out var inflow))
             return new WebhookResult(WebhookStatus.Ignored);
 
+        return await ReconcileAsync(inflow, ct);
+    }
+
+    /// <summary>
+    /// Core reconciliation (post-signature, post-parse): dedupe, match the NUBAN, credit + classify,
+    /// publish events, and evaluate money rules. The live webhook path and the sandbox simulator
+    /// both call this, so a simulated deposit is reconciled by the <b>exact same code</b> as a real one.
+    /// </summary>
+    public async Task<WebhookResult> ReconcileAsync(NombaInflow inflow, CancellationToken ct = default)
+    {
         // Idempotency: same reference already recorded => duplicate, no re-credit (rule book).
         if (await db.Transactions.AnyAsync(t => t.NombaReference == inflow.Reference, ct))
             return new WebhookResult(WebhookStatus.Duplicate);
@@ -59,6 +71,7 @@ public sealed class NombaWebhookService(
                 gross, fee, TransactionStatus.Failed, ReconciliationStatus.Reversed,
                 TransactionFlag.Reversed, occurred, now));
             await db.SaveChangesAsync(ct);
+            if (account is not null) NotifyStatus(account, ReconciliationStatus.Reversed);
             return new WebhookResult(WebhookStatus.Reversed, inflow.Reference, ReconciliationStatus.Reversed, account?.PaymentState, TransactionFlag.Reversed);
         }
 
@@ -104,7 +117,28 @@ public sealed class NombaWebhookService(
         await outbound.PublishDepositAsync(account, txn, ct);
 
         await db.SaveChangesAsync(ct);
+
+        // Live Checkout: push the new status to any open subscribers. Best-effort, post-commit,
+        // and fully isolated — a notifier failure can never affect the reconciliation outcome.
+        NotifyStatus(account, reconciliation);
+
+        // Money Rules (Feature 3): react to the committed outcome. Post-commit + isolated, so a
+        // rule failure cannot corrupt the reconciliation that already succeeded.
+        try { await rules.EvaluateAsync(account, txn, ct); }
+        catch { /* rules are advisory — never fail the webhook over them */ }
+
         return new WebhookResult(WebhookStatus.Processed, account.Reference, reconciliation, account.PaymentState, reason);
+    }
+
+    private void NotifyStatus(VirtualAccount account, ReconciliationStatus reconciliation)
+    {
+        try
+        {
+            notifier.Publish(new CheckoutStatusEvent(
+                account.Id, account.Reference, account.PaymentState.ToString(),
+                account.AmountPaidKobo, account.ExpectedAmountKobo, reconciliation.ToString()));
+        }
+        catch { /* pure notify path — swallow so it can't touch the money path */ }
     }
 
     private static bool NameMismatch(string? transferName, string? customerName)

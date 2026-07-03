@@ -486,10 +486,16 @@ _When these ship, this document is updated in the same PR._
 
 ---
 
-## 10. Planned differentiator features (post-Kredar)
+## 10. Differentiator features (design notes)
 
-Three high-impact features to build on the Nomba engine. **Scheduled after the Kredar
-deployment.** All three are **additive and opt-in** — they extend existing extension points and
+> **✅ Now implemented and deployed to staging** — see [§11](#11-differentiator-features--api-reference)
+> for the live API, and [docs/DIFFERENTIATORS-FE-GUIDE.md](docs/DIFFERENTIATORS-FE-GUIDE.md) for the
+> frontend guide. This section is retained as the design rationale. (Money-rule actions shipped as
+> Hold / Notify / ReviewFlag — auto-refund was dropped because it needs payer bank details we don't
+> hold; conditions are typed thresholds rather than free-form JSON.)
+
+Three high-impact features to build on the Nomba engine. All three are **additive and opt-in** —
+they extend existing extension points and
 must not change the reconciliation verdict, settlement core, money model, tenant isolation, or the
 Nomba webhook signature/response contract.
 
@@ -540,3 +546,32 @@ auto-accept; risk ≥ N → hold; fully paid → notify).
 2. **Feature 1 (Split/Escrow)** — extends the settlement worker; biggest product leap.
 3. **Feature 3 (Rules Engine)** — composes the refund/escrow/notify primitives from 1 & 2, so it
    reuses everything and lands last.
+
+---
+
+## 11. Differentiator features — API reference
+
+Implemented + deployed. Frontend guide: [docs/DIFFERENTIATORS-FE-GUIDE.md](docs/DIFFERENTIATORS-FE-GUIDE.md).
+All additive + opt-in; the reconciliation verdict, money model, tenant isolation, and Nomba webhook
+contract are unchanged.
+
+### Live Checkout (real-time reconciliation status)
+- `POST /api/v1/checkout/sessions` (API plane) — `{ accountRef, ttlSeconds? }` → session token + URLs + snapshot.
+- `GET /api/v1/checkout/{token}` (anonymous) — current payment-state snapshot; `404` if unknown/expired.
+- `GET /api/v1/checkout/{token}/stream` (anonymous) — **SSE**; emits the snapshot immediately then on every status change.
+- Read-only against the money path; a new `checkout_sessions` table backs the tokens.
+
+### Split & Escrow settlement
+- `GET|PUT /api/v1/settings/splits` (dashboard) — the tenant's split plan (percentage bps or flat kobo, priority-ordered). Empty ⇒ single sweep.
+- `POST /api/v1/settlements/{accountRef}/hold` (API) — escrow the account's funds.
+- `POST /api/v1/settlements/{accountRef}/release` (API) — release the hold.
+- The settlement worker fans net across legs as idempotent `settle-{id}-{i}` transfers that **sum to exactly net** (over-allocation aborts the whole settlement); an active hold blocks the sweep. New `settlement_splits` + `escrow_holds` tables.
+
+### Money Rules
+- `GET|POST|DELETE /api/v1/rules` (dashboard).
+- Trigger ∈ `AnyDeposit | Overpaid | Underpaid | HighRisk | FullyPaid` (`thresholdKobo` / `minRiskScore` gates); action ∈ `Hold | Notify | ReviewFlag`.
+- `RuleEngine.EvaluateAsync` runs **after** the reconciliation commit, fully isolated (a rule failure can't corrupt the verdict). New `money_rules` table.
+
+### Agent layer
+- `POST /api/v1/sandbox/simulate/deposit` (API, **test-mode keys only**) — `{ accountRef, amountKobo, senderName?, reversal? }` drives the **real** reconciliation (via the shared `NombaWebhookService.ReconcileAsync`) with zero money; splits + rules fire. `403` for live keys, `404` for unknown account.
+- `GET /.well-known/llms.txt` (anonymous) — compact capability map for AI agents. Full contract remains the OpenAPI at `/swagger/v1/swagger.json`.

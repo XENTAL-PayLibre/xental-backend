@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Xental.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using Xental.Infrastructure.Persistence;
 namespace Xental.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(XentalDbContext))]
-    partial class XentalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260703144801_AddSplitAndEscrow")]
+    partial class AddSplitAndEscrow
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -595,50 +598,6 @@ namespace Xental.Infrastructure.Persistence.Migrations
                     b.HasIndex("VirtualAccountId", "State");
 
                     b.ToTable("escrow_holds", (string)null);
-                });
-
-            modelBuilder.Entity("Xental.Domain.Payments.MoneyRule", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(24)
-                        .HasColumnType("character varying(24)");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("Enabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<int?>("MinRiskScore")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Priority")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long?>("ThresholdKobo")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Trigger")
-                        .IsRequired()
-                        .HasMaxLength(24)
-                        .HasColumnType("character varying(24)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "Enabled");
-
-                    b.ToTable("money_rules", (string)null);
                 });
 
             modelBuilder.Entity("Xental.Domain.Payments.SettlementConfig", b =>
@@ -1383,15 +1342,6 @@ namespace Xental.Infrastructure.Persistence.Migrations
                     b.HasOne("Xental.Domain.Payments.VirtualAccount", null)
                         .WithMany()
                         .HasForeignKey("VirtualAccountId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Xental.Domain.Payments.MoneyRule", b =>
-                {
-                    b.HasOne("Xental.Domain.Tenancy.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

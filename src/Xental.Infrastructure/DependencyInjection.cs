@@ -100,6 +100,9 @@ public static class DependencyInjection
         // Auto-settlement: sweep fully-paid accounts to the tenant's bank when they opt in.
         services.AddHostedService<Payments.SettlementWorker>();
 
+        // Live Checkout: in-process reconciliation pub/sub feeding the SSE streams.
+        services.AddSingleton<IReconciliationNotifier, Payments.InMemoryReconciliationNotifier>();
+
         return services;
     }
 }

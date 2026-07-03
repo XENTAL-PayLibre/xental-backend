@@ -52,4 +52,23 @@ public sealed class OutboundEventPublisher(IApplicationDbContext db, IClock cloc
             db.WebhookDeliveries.Add(new WebhookDelivery(
                 account.TenantId, endpoint.Id, eventId, "deposit.reconciled", payload, clock.UtcNow));
     }
+
+    /// <summary>
+    /// Enqueue a generic enriched event to the tenant's active endpoints (used by the money-rules
+    /// engine's Notify action). Does not save — it enlists in the caller's transaction.
+    /// </summary>
+    public async Task PublishEventAsync(Guid tenantId, string eventType, object data, CancellationToken ct = default)
+    {
+        var endpoints = await db.WebhookEndpoints
+            .IgnoreQueryFilters()
+            .Where(e => e.TenantId == tenantId && e.Active)
+            .ToListAsync(ct);
+        if (endpoints.Count == 0)
+            return;
+
+        var eventId = Guid.NewGuid().ToString("N");
+        var payload = JsonSerializer.Serialize(new { id = eventId, @event = eventType, createdAt = clock.UtcNow, data });
+        foreach (var endpoint in endpoints)
+            db.WebhookDeliveries.Add(new WebhookDelivery(tenantId, endpoint.Id, eventId, eventType, payload, clock.UtcNow));
+    }
 }

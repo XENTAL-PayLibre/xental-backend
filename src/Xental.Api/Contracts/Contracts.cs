@@ -268,3 +268,66 @@ public sealed record InsightsResponse(
     int HighRisk,
     int FullyPaidAccounts,
     int PartiallyPaidAccounts);
+
+// ---- Live Checkout (differentiator) ----
+public sealed record CreateCheckoutSessionRequest(
+    [Required] string AccountRef,
+    [Range(1, 86400)] int? TtlSeconds);
+
+public sealed record CheckoutSessionResponse(
+    string Token,
+    string SnapshotUrl,
+    string StreamUrl,
+    DateTimeOffset ExpiresAtUtc,
+    CheckoutSnapshotResponse Snapshot);
+
+public sealed record CheckoutSnapshotResponse(
+    string AccountRef,
+    string AccountNumber,
+    string BankName,
+    string AccountName,
+    string PaymentState,
+    long AmountPaidKobo,
+    long? ExpectedAmountKobo);
+
+// ---- Split & Escrow settlement (differentiator) ----
+public sealed record SplitLegRequest(
+    [Required, StringLength(200, MinimumLength = 1)] string BeneficiaryName,
+    [Required] string AccountNumber,
+    [Required] string BankCode,
+    [Required] string Basis,               // "Percentage" | "Flat"
+    [Range(0, 10000)] int ShareBps,
+    [Range(0, long.MaxValue)] long FlatKobo,
+    int Priority);
+
+public sealed record SetSplitsRequest([Required] List<SplitLegRequest> Splits);
+
+public sealed record SplitLegResponse(
+    Guid Id, string BeneficiaryName, string AccountNumber, string BankCode,
+    string Basis, int ShareBps, long FlatKobo, int Priority, bool Enabled);
+
+public sealed record EscrowHoldRequest(string? ReleaseCondition);
+
+public sealed record EscrowHoldResponse(
+    Guid Id, string AccountRef, long AmountKobo, string State, string? ReleaseCondition, DateTimeOffset CreatedAtUtc);
+
+// ---- Money Rules engine (differentiator) ----
+public sealed record CreateRuleRequest(
+    [Required] string Trigger,             // AnyDeposit | Overpaid | Underpaid | HighRisk | FullyPaid
+    [Required] string Action,              // Hold | Notify | ReviewFlag
+    [Range(0, long.MaxValue)] long? ThresholdKobo,
+    [Range(0, 100)] int? MinRiskScore,
+    int Priority);
+
+public sealed record RuleResponse(
+    Guid Id, string Trigger, string Action, long? ThresholdKobo, int? MinRiskScore, bool Enabled, int Priority);
+
+// ---- Sandbox simulator (agent layer) ----
+public sealed record SimulateDepositRequest(
+    [Required] string AccountRef,
+    [Range(1, long.MaxValue)] long AmountKobo,
+    string? SenderName,
+    bool? Reversal);
+
+public sealed record SimulatedDepositResponse(
+    string Status, string? Reference, string? Reconciliation, string? PaymentState, string? Reason);
