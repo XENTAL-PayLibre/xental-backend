@@ -23,10 +23,17 @@ filters **and** at write time. Money is integer **kobo** end to end.
 | **Transactions & payouts** | Filtered statements; idempotent bank transfers (keyed on `merchantTxRef`) |
 | **Settlement** | Per-tenant settlement account + auto-settle worker that sweeps fully-paid accounts (net of fees) to the merchant's bank |
 | **Insights** | Collection rate, outstanding deficit, reconciliation & risk breakdown |
+| **Live Checkout** | Opaque session token per account + anonymous **SSE** stream so a payer sees "Payment received ✓" the instant a deposit reconciles |
+| **Split & Escrow** | Fan a fully-paid account's net across beneficiary legs (percentage/flat, summing to exactly net) + escrow holds that park funds until released |
+| **Money Rules** | Declarative if-this-then-that on reconciled deposits (overpaid → hold, high-risk → hold, notify) — post-commit, never changes the verdict |
+| **Agent layer** | Test-mode **sandbox deposit simulator** (real reconciliation, zero money) + `/.well-known/llms.txt` so an AI agent can wire + verify an integration |
+| **KYC/onboarding** | Sandbox on signup; live access gated on admin-approved Developer KYC + Business KYB; MinIO/S3 document storage; SuperAdmin/Admin RBAC + TOTP MFA |
 | **Ops** | `/health` liveness + `/ready` DB readiness, security-headers middleware, throttled 5xx email alerts, OpenTelemetry, Serilog |
 
-Full API + concept reference: [documentation.md](documentation.md). Interactive docs
-at `/swagger` (includes a quickstart).
+Full API + concept reference: [documentation.md](documentation.md) (differentiators in §11).
+Frontend guides: [docs/DIFFERENTIATORS-FE-GUIDE.md](docs/DIFFERENTIATORS-FE-GUIDE.md),
+[docs/KYC-ADMIN-API-FE.md](docs/KYC-ADMIN-API-FE.md). Interactive docs at `/swagger`
+(includes a quickstart).
 
 ## Solution structure
 
