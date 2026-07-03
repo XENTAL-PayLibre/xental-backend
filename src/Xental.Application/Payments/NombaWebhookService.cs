@@ -40,6 +40,16 @@ public sealed class NombaWebhookService(
         if (!NombaWebhookParser.TryParse(rawBody, out var inflow))
             return new WebhookResult(WebhookStatus.Ignored);
 
+        return await ReconcileAsync(inflow, ct);
+    }
+
+    /// <summary>
+    /// Core reconciliation (post-signature, post-parse): dedupe, match the NUBAN, credit + classify,
+    /// publish events, and evaluate money rules. The live webhook path and the sandbox simulator
+    /// both call this, so a simulated deposit is reconciled by the <b>exact same code</b> as a real one.
+    /// </summary>
+    public async Task<WebhookResult> ReconcileAsync(NombaInflow inflow, CancellationToken ct = default)
+    {
         // Idempotency: same reference already recorded => duplicate, no re-credit (rule book).
         if (await db.Transactions.AnyAsync(t => t.NombaReference == inflow.Reference, ct))
             return new WebhookResult(WebhookStatus.Duplicate);

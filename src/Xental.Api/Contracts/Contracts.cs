@@ -321,3 +321,13 @@ public sealed record CreateRuleRequest(
 
 public sealed record RuleResponse(
     Guid Id, string Trigger, string Action, long? ThresholdKobo, int? MinRiskScore, bool Enabled, int Priority);
+
+// ---- Sandbox simulator (agent layer) ----
+public sealed record SimulateDepositRequest(
+    [Required] string AccountRef,
+    [Range(1, long.MaxValue)] long AmountKobo,
+    string? SenderName,
+    bool? Reversal);
+
+public sealed record SimulatedDepositResponse(
+    string Status, string? Reference, string? Reconciliation, string? PaymentState, string? Reason);
