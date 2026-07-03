@@ -46,6 +46,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 // Current-tenant resolution from the JWT.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, TenantContext>();
+builder.Services.AddScoped<IAdminContext, AdminContext>();
 
 // Writes the HttpOnly+Secure dashboard session cookies.
 builder.Services.AddScoped<AuthCookieWriter>();
@@ -92,6 +93,14 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(AuthPolicies.Api, policy => policy
         .RequireAuthenticatedUser()
         .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Api));
+    // Admin plane: any admin, and the SuperAdmin-only subset (manage admins).
+    options.AddPolicy(AuthPolicies.Admin, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Admin));
+    options.AddPolicy(AuthPolicies.SuperAdmin, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Admin)
+        .RequireClaim(AuthPolicies.AdminRoleClaim, nameof(Xental.Domain.Admin.AdminRole.SuperAdmin)));
 });
 
 // TLS is terminated at Traefik; trust its X-Forwarded-* so the real client IP/scheme
@@ -120,6 +129,18 @@ builder.Services.AddRateLimiter(options =>
 
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx => Window(ctx, 300));
     options.AddPolicy("auth", ctx => Window(ctx, 10));
+
+    // API-plane throttle keyed by the API KEY (or tenant), not just IP: each credential gets its
+    // own quota, and live keys get a higher ceiling than sandbox (test) keys.
+    options.AddPolicy("api-key", ctx =>
+    {
+        if (rateLimitingDisabled) return RateLimitPartition.GetNoLimiter<string>("disabled");
+        var user = ctx.User;
+        var key = user.FindFirst("kid")?.Value ?? user.FindFirst("tenant_id")?.Value ?? ClientKey(ctx);
+        var permit = user.FindFirst("key_mode")?.Value == "live" ? 600 : 120; // per minute
+        return RateLimitPartition.GetFixedWindowLimiter($"apikey:{key}",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = permit, Window = TimeSpan.FromMinutes(1) });
+    });
 });
 
 // CORS: allow the dashboard frontend origins to call the API with credentials
@@ -219,6 +240,17 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<XentalDbContext>();
     if (db.Database.ProviderName == "Npgsql.EntityFrameworkCore.PostgreSQL")
         db.Database.Migrate();
+
+    // One-time bootstrap of the first SuperAdmin from config (Admin:BootstrapEmail/Password).
+    // Only seeds when no admin exists yet; rotate the bootstrap password after first login.
+    var bootEmail = app.Configuration["Admin:BootstrapEmail"];
+    var bootPassword = app.Configuration["Admin:BootstrapPassword"];
+    if (!string.IsNullOrWhiteSpace(bootEmail) && !string.IsNullOrWhiteSpace(bootPassword) && !db.AdminUsers.Any())
+    {
+        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+        db.AdminUsers.Add(new Xental.Domain.Admin.AdminUser(bootEmail, hasher.Hash(bootPassword), Xental.Domain.Admin.AdminRole.SuperAdmin));
+        db.SaveChanges();
+    }
 }
 
 // Baseline security response headers on every response (skips the Swagger UI).

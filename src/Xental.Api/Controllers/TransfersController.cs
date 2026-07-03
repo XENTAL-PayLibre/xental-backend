@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Xental.Api.Authorization;
 using Xental.Api.Contracts;
 using Xental.Application.Payments;
@@ -14,6 +15,7 @@ namespace Xental.Api.Controllers;
 [ApiController]
 [Route("api/v1/transfers")]
 [Authorize(Policy = AuthPolicies.Api)]
+[EnableRateLimiting("api-key")]
 public sealed class TransfersController(TransferService transfers) : ControllerBase
 {
     /// <summary>Resolve the recipient account name before sending (name check).</summary>

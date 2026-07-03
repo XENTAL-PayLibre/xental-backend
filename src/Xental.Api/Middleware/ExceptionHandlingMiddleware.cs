@@ -23,6 +23,8 @@ public sealed class ExceptionHandlingMiddleware(
                 ValidationException => (StatusCodes.Status400BadRequest, "Validation failed"),
                 AuthenticationException => (StatusCodes.Status401Unauthorized, "Authentication failed"),
                 EmailNotVerifiedException => (StatusCodes.Status403Forbidden, "Email not verified"),
+                OnboardingNotApprovedException => (StatusCodes.Status403Forbidden, "Onboarding not approved"),
+                ForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden"),
                 ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
                 NotFoundException => (StatusCodes.Status404NotFound, "Not found"),
                 NombaIntegrationException => (StatusCodes.Status502BadGateway, "Upstream provider error"),

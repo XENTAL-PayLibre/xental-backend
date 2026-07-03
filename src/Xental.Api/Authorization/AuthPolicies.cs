@@ -10,5 +10,10 @@ public static class AuthPolicies
     public const string Dashboard = "dashboard";
     public const string Api = "api";
 
+    /// <summary>Admin plane. <see cref="Admin"/> = any admin; <see cref="SuperAdmin"/> requires role SuperAdmin.</summary>
+    public const string Admin = "admin";
+    public const string SuperAdmin = "super-admin";
+
     public const string ScopeClaim = "scope";
+    public const string AdminRoleClaim = "admin_role";
 }

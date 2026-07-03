@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Xental.Application.Common;
 using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
 using Xental.Domain.Common;
@@ -9,13 +11,17 @@ namespace Xental.Application.Payments;
 /// <summary>
 /// Outbound bank transfers (payouts/settlement). Idempotent on <c>merchantTxRef</c>: the Pending
 /// transfer is persisted before the provider is called, so a retried ref never moves money twice.
+/// Enforces the per-tenant daily payout cap.
 /// </summary>
 public sealed class TransferService(
     IApplicationDbContext db,
     ITenantContext tenantContext,
     INombaClient nomba,
+    IOptions<TierLimitOptions> limits,
     IClock clock)
 {
+    private readonly TierLimitOptions _limits = limits.Value;
+
     public Task<BankAccountName> LookupAsync(string accountNumber, string bankCode, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(accountNumber) || string.IsNullOrWhiteSpace(bankCode))
@@ -39,6 +45,17 @@ public sealed class TransferService(
         var existing = await db.Transfers.FirstOrDefaultAsync(t => t.MerchantTxRef == reference, ct);
         if (existing is not null)
             return existing; // idempotent replay
+
+        // Per-tenant daily payout cap (0 = unlimited). Checked before reserving the ref.
+        if (_limits.DailyPayoutCapKobo > 0)
+        {
+            var startOfDayUtc = new DateTimeOffset(clock.UtcNow.UtcDateTime.Date, TimeSpan.Zero);
+            var spentToday = await db.Transfers
+                .Where(t => t.TenantId == tenantId && t.Status == TransferStatus.Success && t.CreatedAtUtc >= startOfDayUtc)
+                .SumAsync(t => (long?)t.AmountKobo, ct) ?? 0;
+            if (spentToday + amountKobo > _limits.DailyPayoutCapKobo)
+                throw new ValidationException("Daily payout limit exceeded. Contact support to raise your limit.");
+        }
 
         var transfer = new Transfer(
             tenantId, reference, Money.FromKobo(amountKobo), accountNumber.Trim(), bankCode.Trim(), null, narration);

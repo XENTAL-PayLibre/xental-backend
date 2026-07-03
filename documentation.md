@@ -480,5 +480,63 @@ Shipped:
 
 Next:
 - **PayLibre demo** integration on top of the settlement + reconciliation engine.
+- **Differentiator features** — see §10.
 
 _When these ship, this document is updated in the same PR._
+
+---
+
+## 10. Planned differentiator features (post-Kredar)
+
+Three high-impact features to build on the Nomba engine. **Scheduled after the Kredar
+deployment.** All three are **additive and opt-in** — they extend existing extension points and
+must not change the reconciliation verdict, settlement core, money model, tenant isolation, or the
+Nomba webhook signature/response contract.
+
+### Non-disruptive design rules (apply to all three)
+- New tables via **incremental migrations only** (like `AddSettlement`); existing tables gain at
+  most **nullable additive columns**.
+- **Hook into existing extension points, don't rewrite them:** `OutboundEventPublisher` already
+  fires reconciliation events; `SettlementWorker` already sweeps; `NombaWebhookService` already
+  classifies. We subscribe/extend, never alter the verdict path.
+- **Per-tenant feature flags** — a tenant that hasn't opted in behaves exactly as today.
+- Each feature ships behind its own flag, its own migration, and its own tests.
+
+### Feature 1 — Split & Escrow Settlement
+Fan a reconciled deposit out to multiple beneficiaries (percent or flat, with a platform-fee skim),
+optionally held in escrow until a release condition fires.
+- **New tables:** `settlement_splits` (tenantId, virtualAccountId?, beneficiary, share, priority),
+  `escrow_holds` (tenantId, virtualAccountId, amountKobo, state, releaseCondition, releasedAtUtc).
+- **Integration:** the existing `SettlementWorker` gains one branch — when splits exist it creates
+  **N idempotent transfers** (`settle-{accountId}-{i}`) summing to net; no splits → current
+  single-sweep, unchanged. Escrow skips accounts with an active hold; release flips it.
+- **Safety:** per-leg idempotency; sum asserted equal to net before any transfer (all-or-nothing).
+- **Surface:** `GET/PUT /api/v1/settings/splits`, `POST /api/v1/settlements/{ref}/release`.
+
+### Feature 2 — Live Checkout (real-time reconciliation status)
+Hosted "pay to this account" page + an SSE stream so the payer sees **"Payment received ✓"** the
+instant the webhook reconciles.
+- **Integration (read-only):** new `GET /api/v1/checkout/{token}/stream` (SSE, anonymous, scoped to
+  one account ref). An in-process notifier reads the `deposit.reconciled` event that
+  `OutboundEventPublisher` already emits — it never writes. Fallback polls `PaymentState`.
+- **Safety:** pure read/notify path; failure cannot affect money movement. Optional
+  `checkout_sessions` table for hosted-page metadata.
+- **Surface:** `POST /api/v1/checkout/sessions`, `GET /checkout/{token}`, `GET /api/v1/checkout/{token}/stream`.
+
+### Feature 3 — Money Rules Engine
+Declarative if-this-then-that on inflows (overpaid → auto-refund excess; underpaid < X% →
+auto-accept; risk ≥ N → hold; fully paid → notify).
+- **New table:** `money_rules` (tenantId, trigger, conditionJson, action, actionParamsJson, enabled, priority).
+- **Integration (append-only):** `RuleEngine.EvaluateAsync(account, txn)` runs at the **end** of
+  `ProcessAsync`, **after** the transaction is committed — rules react to the outcome, never change
+  classification. Actions reuse existing primitives: Refund → `Transfer`, Hold → escrow (Feature 1),
+  Notify → `OutboundEventPublisher`. No rules configured → no-op.
+- **Safety:** post-commit evaluation; a rule failure can't corrupt reconciliation; each action is
+  independently idempotent + audit-logged.
+- **Surface:** `GET/POST/DELETE /api/v1/rules`.
+
+### Sequencing
+1. **Feature 2 (Live Checkout)** — highest demo payoff, lowest risk, no money-path change.
+2. **Feature 1 (Split/Escrow)** — extends the settlement worker; biggest product leap.
+3. **Feature 3 (Rules Engine)** — composes the refund/escrow/notify primitives from 1 & 2, so it
+   reuses everything and lands last.

@@ -138,12 +138,33 @@ public class RiskAndTransferTests
         await ctx.SaveChangesAsync();
         db.Tenant.TenantId = t.Id;
 
-        var svc = new TransferService(ctx, db.Tenant, new FakeNombaClient(), db.Clock);
+        var svc = new TransferService(ctx, db.Tenant, new FakeNombaClient(),
+            Microsoft.Extensions.Options.Options.Create(new Xental.Application.Common.TierLimitOptions()), db.Clock);
         var a = await svc.InitiateAsync("mtx-1", 100_00, "0123456789", "011", null);
         var b = await svc.InitiateAsync("mtx-1", 100_00, "0123456789", "011", null);
         b.Id.Should().Be(a.Id, "same merchantTxRef must not move money twice");
         a.Status.Should().Be(TransferStatus.Success);
 
         (await ctx.Transfers.IgnoreQueryFilters().CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Daily_payout_cap_blocks_transfers_over_the_limit()
+    {
+        using var db = new TestDatabase();
+        await using var ctx = db.CreateContext();
+        var t = new Tenant("Acme", $"a-{Guid.NewGuid():N}@x.com", "h"); ctx.Tenants.Add(t);
+        await ctx.SaveChangesAsync();
+        db.Tenant.TenantId = t.Id;
+
+        var limits = Microsoft.Extensions.Options.Options.Create(
+            new Xental.Application.Common.TierLimitOptions { DailyPayoutCapKobo = 10_000 });
+        var svc = new TransferService(ctx, db.Tenant, new FakeNombaClient(), limits, db.Clock);
+
+        var ok = await svc.InitiateAsync("mtx-1", 6_000, "0123456789", "011", null);
+        ok.Status.Should().Be(TransferStatus.Success);
+
+        var overCap = () => svc.InitiateAsync("mtx-2", 6_000, "0123456789", "011", null);
+        await overCap.Should().ThrowAsync<Xental.Application.Common.Exceptions.ValidationException>();
     }
 }

@@ -30,6 +30,13 @@ public static class DependencyInjection
         services.AddScoped<Payments.TransferService>();
         services.AddScoped<Payments.InsightsService>();
         services.AddScoped<Payments.SettlementConfigService>();
+        services.AddScoped<Onboarding.OnboardingService>();
+        services.AddScoped<Onboarding.DeveloperKycService>();
+        services.AddScoped<Onboarding.BusinessKybService>();
+        services.AddScoped<Admin.AdminAuthService>();
+        services.AddScoped<Admin.AdminOnboardingService>();
+        services.AddScoped<Admin.AdminManagementService>();
+        services.AddScoped<Admin.AdminReconciliationService>();
         services.AddScoped<Webhooks.OutboundEventPublisher>();
         services.AddScoped<Webhooks.WebhookEndpointService>();
         return services;

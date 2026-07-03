@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
+using Xental.Domain.Onboarding;
 using Xental.Domain.Tenancy;
 
 namespace Xental.Application.ApiKeys;
@@ -25,6 +26,20 @@ public sealed class ApiKeyService(
             throw new ValidationException("Key label is required.");
 
         var tenantId = tenantContext.RequireTenantId();
+
+        // Live keys are hard-gated on an approved onboarding (KYC + KYB). Sandbox (test) keys are
+        // always available on signup. Test keys can never move real money — no live gate needed.
+        if (mode == ApiKeyMode.Live)
+        {
+            var tier = await db.OnboardingApplications.AsNoTracking()
+                .Where(a => a.TenantId == tenantId)
+                .Select(a => (KycTier?)a.Tier)
+                .FirstOrDefaultAsync(ct);
+            if (tier != KycTier.Live)
+                throw new OnboardingNotApprovedException(
+                    "Live API keys require an approved KYC + KYB onboarding. Complete verification to go live.");
+        }
+
         var clientId = tokens.Generate(mode == ApiKeyMode.Live ? "xnt_live" : "xnt_test", 12);
         var secret = tokens.Generate(mode == ApiKeyMode.Live ? "sk_live" : "sk_test", 32);
 

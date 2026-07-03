@@ -4,15 +4,17 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Xental.Application.Common.Interfaces;
+using Xental.Domain.Admin;
 using Xental.Domain.Tenancy;
 
 namespace Xental.Infrastructure.Security;
 
 public sealed class JwtTokenService : IJwtTokenService
 {
-    // Scopes distinguish the two token planes.
+    // Scopes distinguish the token planes.
     public const string DashboardScope = "dashboard";
     public const string ApiScope = "api";
+    public const string AdminScope = "admin";
 
     private readonly JwtOptions _options;
     private readonly IClock _clock;
@@ -56,6 +58,21 @@ public sealed class JwtTokenService : IJwtTokenService
             new("kid", apiKey.Id.ToString()),
         };
         return Issue(claims, _options.AccessTokenLifetimeSeconds);
+    }
+
+    /// <summary>Token for the admin plane, carrying the admin role (Admin / SuperAdmin).</summary>
+    public AccessToken IssueAdminToken(AdminUser admin)
+    {
+        var claims = new List<Claim>
+        {
+            new(JwtRegisteredClaimNames.Sub, admin.Id.ToString()),
+            new("admin_id", admin.Id.ToString()),
+            new(JwtRegisteredClaimNames.Email, admin.Email),
+            new("scope", AdminScope),
+            new("admin_role", admin.Role.ToString()),
+        };
+        // Admin sessions are short — reuse the dashboard token lifetime.
+        return Issue(claims, _options.DashboardTokenLifetimeSeconds);
     }
 
     private AccessToken Issue(List<Claim> claims, int lifetimeSeconds)

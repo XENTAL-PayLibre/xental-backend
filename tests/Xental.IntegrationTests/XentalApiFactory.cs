@@ -82,6 +82,11 @@ public sealed class XentalApiFactory : WebApplicationFactory<Program>
             // Never send real email in tests.
             services.AddScoped<IEmailSender, FakeEmailSender>();
 
+            // Replace external integrations with deterministic in-memory fakes.
+            Replace(services, ServiceDescriptor.Scoped<IIdentityVerifier, FakeIdentityVerifier>());
+            Replace(services, ServiceDescriptor.Scoped<INombaClient, FakeNombaClient>());
+            Replace(services, ServiceDescriptor.Singleton<IDocumentStorage, FakeDocumentStorage>());
+
             // Create the schema on the shared connection.
             using var provider = services.BuildServiceProvider();
             using var scope = provider.CreateScope();
@@ -89,9 +94,49 @@ public sealed class XentalApiFactory : WebApplicationFactory<Program>
         });
     }
 
+    private static void Replace(IServiceCollection services, ServiceDescriptor descriptor)
+    {
+        for (var i = services.Count - 1; i >= 0; i--)
+            if (services[i].ServiceType == descriptor.ServiceType) services.RemoveAt(i);
+        services.Add(descriptor);
+    }
+
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
         if (disposing) _connection.Dispose();
     }
+}
+
+// ---- Deterministic fakes for external integrations (identity, payments, storage) ----
+
+internal sealed class FakeIdentityVerifier : IIdentityVerifier
+{
+    public Task<IdentityResult> VerifyBvnAsync(string bvn, CancellationToken ct = default) =>
+        Task.FromResult(new IdentityResult(true, "Ada", "Obi", new DateOnly(1990, 1, 1)));
+    public Task<IdentityResult> VerifyNinAsync(string nin, CancellationToken ct = default) =>
+        Task.FromResult(new IdentityResult(true, "Ada", "Obi", new DateOnly(1990, 1, 1)));
+    public Task<CompanyResult> VerifyCacAsync(string rcNumber, CancellationToken ct = default) =>
+        Task.FromResult(new CompanyResult(true, "Acme Ltd", rcNumber));
+}
+
+internal sealed class FakeNombaClient : INombaClient
+{
+    public Task<ProvisionedVirtualAccount> CreateVirtualAccountAsync(string accountRef, string accountName, string? email, string? phone, CancellationToken ct = default) =>
+        Task.FromResult(new ProvisionedVirtualAccount("1234567890", "Test Bank", accountName, "prov-" + accountRef));
+    public Task<BankAccountName> LookupBankAccountAsync(string accountNumber, string bankCode, CancellationToken ct = default) =>
+        Task.FromResult(new BankAccountName("Ada Obi", accountNumber, bankCode));
+    public Task<TransferResult> InitiateTransferAsync(string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? narration, CancellationToken ct = default) =>
+        Task.FromResult(new TransferResult(true, "prov-" + merchantTxRef, null));
+}
+
+internal sealed class FakeDocumentStorage : IDocumentStorage
+{
+    public async Task PutAsync(string objectKey, Stream content, string contentType, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        await content.CopyToAsync(ms, ct); // drain
+    }
+    public Task<Uri> CreateDownloadUrlAsync(string objectKey, TimeSpan ttl, CancellationToken ct = default) =>
+        Task.FromResult(new Uri($"https://storage.test/{objectKey}"));
 }

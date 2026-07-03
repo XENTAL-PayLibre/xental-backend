@@ -9,6 +9,12 @@ public sealed class AuthenticationException(string message) : Exception(message)
 /// <summary>Credentials are valid but the account's email is not verified (maps to 403).</summary>
 public sealed class EmailNotVerifiedException(string message) : Exception(message);
 
+/// <summary>The action needs an approved onboarding the tenant doesn't have (maps to 403).</summary>
+public sealed class OnboardingNotApprovedException(string message) : Exception(message);
+
+/// <summary>The caller lacks permission for this action (maps to 403).</summary>
+public sealed class ForbiddenException(string message) : Exception(message);
+
 /// <summary>A uniqueness/state conflict (maps to 409).</summary>
 public sealed class ConflictException(string message) : Exception(message);
 
