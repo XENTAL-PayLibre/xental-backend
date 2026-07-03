@@ -29,13 +29,26 @@ public sealed class AuthCookieWriter(IOptions<AuthOptions> auth)
         response.Cookies.Delete(RefreshCookie, opts);
     }
 
-    private CookieOptions BuildOptions(DateTimeOffset expires) => new()
+    private CookieOptions BuildOptions(DateTimeOffset expires)
     {
-        HttpOnly = true,
-        Secure = _auth.CookieSecure,
-        SameSite = SameSiteMode.Lax,
-        Expires = expires,
-        Path = "/",
-        Domain = string.IsNullOrWhiteSpace(_auth.CookieDomain) ? null : _auth.CookieDomain,
+        var sameSite = ParseSameSite(_auth.CookieSameSite);
+        return new()
+        {
+            HttpOnly = true,
+            // SameSite=None is rejected by browsers unless the cookie is also Secure, so
+            // force Secure in that case regardless of config.
+            Secure = _auth.CookieSecure || sameSite == SameSiteMode.None,
+            SameSite = sameSite,
+            Expires = expires,
+            Path = "/",
+            Domain = string.IsNullOrWhiteSpace(_auth.CookieDomain) ? null : _auth.CookieDomain,
+        };
+    }
+
+    private static SameSiteMode ParseSameSite(string value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "none" => SameSiteMode.None,
+        "strict" => SameSiteMode.Strict,
+        _ => SameSiteMode.Lax,
     };
 }

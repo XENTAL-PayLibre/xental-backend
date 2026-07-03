@@ -102,6 +102,30 @@ public class Phase1EndToEndTests
     }
 
     [Fact]
+    public async Task Login_marks_session_cookie_SameSite_None_for_cross_site_dev()
+    {
+        using var f = new XentalApiFactory();
+        // Mirror the staging config: the FE dev server (localhost:3000) is a different
+        // site, so the session cookie must be SameSite=None to be sent cross-site.
+        using var configured = f.WithWebHostBuilder(b => b.UseSetting("Auth:CookieSameSite", "None"));
+        var client = configured.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false });
+
+        var email = NewEmail();
+        await RegisterAsync(client, email);
+        await VerifyAsync(client, email);
+        var login = await client.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password });
+
+        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        var access = login.Headers.GetValues("Set-Cookie").First(c => c.StartsWith(AuthCookieWriter_AccessName));
+        access.ToLowerInvariant().Should().Contain("samesite=none");
+        // None is rejected by browsers without Secure, so Secure must be forced on even
+        // though CookieSecure is false in the test host.
+        access.ToLowerInvariant().Should().Contain("secure");
+    }
+
+    private const string AuthCookieWriter_AccessName = "xnt_access";
+
+    [Fact]
     public async Task Wrong_password_is_unauthorized()
     {
         using var f = new XentalApiFactory();
