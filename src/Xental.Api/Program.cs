@@ -101,6 +101,20 @@ builder.Services.AddAuthorization(options =>
         .RequireAuthenticatedUser()
         .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Admin)
         .RequireClaim(AuthPolicies.AdminRoleClaim, nameof(Xental.Domain.Admin.AdminRole.SuperAdmin)));
+
+    // Role-gated dashboard policies. Team members carry a "role"; the account owner is "Owner".
+    options.AddPolicy(AuthPolicies.TeamManage, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Dashboard)
+        .RequireClaim(AuthPolicies.RoleClaim, "Owner", "Admin"));
+    options.AddPolicy(AuthPolicies.ManageKeys, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Dashboard)
+        .RequireClaim(AuthPolicies.RoleClaim, "Owner", "Admin", "Developer"));
+    options.AddPolicy(AuthPolicies.ManageSettings, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Dashboard)
+        .RequireClaim(AuthPolicies.RoleClaim, "Owner", "Admin"));
 });
 
 // TLS is terminated at Traefik; trust its X-Forwarded-* so the real client IP/scheme

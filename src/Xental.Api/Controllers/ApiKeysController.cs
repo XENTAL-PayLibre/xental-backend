@@ -14,7 +14,7 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/api-keys")]
-[Authorize(Policy = AuthPolicies.Dashboard)]
+[Authorize(Policy = AuthPolicies.ManageKeys)]
 public sealed class ApiKeysController(ApiKeyService apiKeys) : ControllerBase
 {
     /// <summary>Create a new API key. The client secret is shown only in this response.</summary>

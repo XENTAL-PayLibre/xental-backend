@@ -20,7 +20,12 @@ public sealed class AppLinkBuilder(IOptions<AppOptions> app, IOptions<AuthOption
     public string PasswordResetLink(string rawToken) =>
         $"{_frontendUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}";
 
+    // Points at the frontend page where an invitee sets a password and POSTs the accept.
+    public string TeamInviteLink(string rawToken) =>
+        $"{_frontendUrl}/accept-invite?token={Uri.EscapeDataString(rawToken)}";
+
     public TimeSpan EmailVerificationTtl => TimeSpan.FromMinutes(_auth.EmailVerificationTtlMinutes);
     public TimeSpan PasswordResetTtl => TimeSpan.FromMinutes(_auth.PasswordResetTtlMinutes);
+    public TimeSpan TeamInviteTtl => TimeSpan.FromDays(7);
     public TimeSpan RefreshTokenLifetime => TimeSpan.FromDays(_auth.RefreshTokenDays);
 }

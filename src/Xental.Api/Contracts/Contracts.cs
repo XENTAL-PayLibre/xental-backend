@@ -331,3 +331,21 @@ public sealed record SimulateDepositRequest(
 
 public sealed record SimulatedDepositResponse(
     string Status, string? Reference, string? Reconciliation, string? PaymentState, string? Reason);
+
+// ---- Team members (dashboard plane) ----
+public sealed record AddTeamMemberRequest(
+    [Required, StringLength(200, MinimumLength = 1)] string Name,
+    [Required, EmailAddress] string Email,
+    [Required] string Role);   // Admin | Employee | Developer
+
+public sealed record UpdateTeamMemberRequest(
+    [Required, StringLength(200, MinimumLength = 1)] string Name,
+    [Required, EmailAddress] string Email,
+    [Required] string Role);
+
+public sealed record TeamMemberResponse(
+    Guid Id, string Name, string Email, string Role, string Status, DateTimeOffset CreatedAtUtc);
+
+public sealed record AcceptInviteRequest(
+    [Required] string Token,
+    [Required, StringLength(128, MinimumLength = 12)] string Password);

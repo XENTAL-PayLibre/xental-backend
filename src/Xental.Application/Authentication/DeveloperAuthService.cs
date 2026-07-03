@@ -22,15 +22,24 @@ public sealed class DeveloperAuthService(
         var normalizedEmail = string.IsNullOrWhiteSpace(email) ? string.Empty : Tenant.NormalizeEmail(email);
 
         var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Email == normalizedEmail, ct);
-        var passwordOk = passwords.Verify(password ?? string.Empty, tenant?.PasswordHash);
+        if (tenant is not null)
+        {
+            var passwordOk = passwords.Verify(password ?? string.Empty, tenant.PasswordHash);
+            if (!tenant.HasPassword || !passwordOk || !tenant.IsActive)
+                throw new AuthenticationException("Invalid email or password.");
+            if (!tenant.EmailVerified)
+                throw new EmailNotVerifiedException("Please verify your email address before signing in.");
+            return await sessions.IssueAsync(tenant, ct);
+        }
 
-        if (tenant is null || !tenant.HasPassword || !passwordOk || !tenant.IsActive)
+        // Not an account owner — try an accepted team member (they sign in to the same account).
+        var member = await db.TeamMembers.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(m => m.Email == normalizedEmail && m.Status == TeamMemberStatus.Active, ct);
+        var memberOk = passwords.Verify(password ?? string.Empty, member?.PasswordHash);
+        if (member is null || !member.CanSignIn || !memberOk)
             throw new AuthenticationException("Invalid email or password.");
 
-        if (!tenant.EmailVerified)
-            throw new EmailNotVerifiedException("Please verify your email address before signing in.");
-
-        return await sessions.IssueAsync(tenant, ct);
+        return await sessions.IssueForMemberAsync(member, ct);
     }
 
     /// <summary>Rotate a refresh token: consume the presented one, issue a fresh session.</summary>
@@ -47,11 +56,21 @@ public sealed class DeveloperAuthService(
         if (token is null || !token.IsActive(clock.UtcNow))
             throw new AuthenticationException("Invalid session.");
 
+        token.Consume(clock.UtcNow); // rotation: this token can't be reused
+
+        // Team-member session — re-issue with the member's identity + role.
+        if (token.TeamMemberId is Guid memberId)
+        {
+            var member = await db.TeamMembers.IgnoreQueryFilters().FirstOrDefaultAsync(m => m.Id == memberId, ct);
+            if (member is null || !member.CanSignIn)
+                throw new AuthenticationException("Invalid session.");
+            return await sessions.IssueForMemberAsync(member, ct);
+        }
+
         var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == token.TenantId, ct);
         if (tenant is null || !tenant.IsActive)
             throw new AuthenticationException("Invalid session.");
 
-        token.Consume(clock.UtcNow); // rotation: this token can't be reused
         return await sessions.IssueAsync(tenant, ct);
     }
 

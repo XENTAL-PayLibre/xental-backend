@@ -10,6 +10,9 @@ namespace Xental.Domain.Tenancy;
 public sealed class RefreshToken : BaseEntity, ITenantOwned
 {
     public Guid TenantId { get; private set; }
+    /// <summary>Set when the session belongs to a team member (not the account owner), so a refresh
+    /// re-issues that member's identity + role rather than the owner's.</summary>
+    public Guid? TeamMemberId { get; private set; }
     public string TokenHash { get; private set; } = null!;
     public DateTimeOffset ExpiresAtUtc { get; private set; }
     public DateTimeOffset? ConsumedAtUtc { get; private set; }
@@ -17,11 +20,12 @@ public sealed class RefreshToken : BaseEntity, ITenantOwned
 
     private RefreshToken() { } // EF
 
-    public RefreshToken(Guid tenantId, string tokenHash, DateTimeOffset expiresAtUtc)
+    public RefreshToken(Guid tenantId, string tokenHash, DateTimeOffset expiresAtUtc, Guid? teamMemberId = null)
     {
         if (tenantId == Guid.Empty)
             throw new DomainException("TenantId is required.");
         TenantId = tenantId;
+        TeamMemberId = teamMemberId;
         TokenHash = DomainException.Require(tokenHash, nameof(tokenHash));
         ExpiresAtUtc = expiresAtUtc;
     }

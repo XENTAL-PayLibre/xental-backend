@@ -14,6 +14,8 @@ public sealed record AccessToken(string Token, int ExpiresInSeconds, DateTimeOff
 public interface IJwtTokenService
 {
     AccessToken IssueDashboardToken(Tenant tenant);
+    /// <summary>Dashboard token for a team member: the account's tenant id + the member's email + role.</summary>
+    AccessToken IssueDashboardToken(Guid tenantId, string email, bool emailVerified, string role);
     AccessToken IssueApiToken(Tenant tenant, ApiKey apiKey);
     AccessToken IssueAdminToken(AdminUser admin);
 }

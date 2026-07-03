@@ -14,7 +14,7 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/rules")]
-[Authorize(Policy = AuthPolicies.Dashboard)]
+[Authorize(Policy = AuthPolicies.ManageSettings)]
 public sealed class RulesController(MoneyRuleService rules) : ControllerBase
 {
     [HttpGet]

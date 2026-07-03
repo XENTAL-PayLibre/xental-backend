@@ -82,6 +82,7 @@ public sealed class FakeEmailSender : IEmailSender
 {
     public string? LastVerificationLink { get; private set; }
     public string? LastResetLink { get; private set; }
+    public string? LastInviteLink { get; private set; }
 
     public Task SendEmailVerificationAsync(string toEmail, string verifyLink, CancellationToken ct = default)
     {
@@ -95,6 +96,12 @@ public sealed class FakeEmailSender : IEmailSender
         return Task.CompletedTask;
     }
 
+    public Task SendTeamInviteAsync(string toEmail, string inviteLink, string accountName, CancellationToken ct = default)
+    {
+        LastInviteLink = inviteLink;
+        return Task.CompletedTask;
+    }
+
     public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
         Task.CompletedTask;
 }
@@ -104,10 +111,12 @@ public sealed class FakeLinkBuilder : ILinkBuilder
 {
     public TimeSpan EmailVerificationTtl { get; set; } = TimeSpan.FromMinutes(30);
     public TimeSpan PasswordResetTtl { get; set; } = TimeSpan.FromMinutes(30);
+    public TimeSpan TeamInviteTtl { get; set; } = TimeSpan.FromDays(7);
     public TimeSpan RefreshTokenLifetime { get; set; } = TimeSpan.FromDays(14);
 
     public string EmailVerificationLink(string rawToken) => rawToken;
     public string PasswordResetLink(string rawToken) => rawToken;
+    public string TeamInviteLink(string rawToken) => rawToken;
 }
 
 public sealed class FakeOAuthProvider(string name, ExternalUserProfile profile) : IExternalIdentityProvider

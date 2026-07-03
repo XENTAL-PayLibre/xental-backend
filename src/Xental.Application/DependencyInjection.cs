@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<AuthenticationService>();
         services.AddScoped<ApiKeyService>();
         services.AddScoped<SubMerchantService>();
+        services.AddScoped<Team.TeamService>();
         services.AddScoped<Payments.VirtualAccountService>();
         services.AddScoped<Payments.NombaWebhookService>();
         services.AddScoped<Payments.RiskEvaluator>();
