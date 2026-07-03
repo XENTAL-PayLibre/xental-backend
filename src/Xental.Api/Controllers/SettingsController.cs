@@ -13,7 +13,7 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/settings/settlement")]
-[Authorize(Policy = AuthPolicies.Dashboard)]
+[Authorize(Policy = AuthPolicies.ManageSettings)]
 public sealed class SettingsController(SettlementConfigService settlement) : ControllerBase
 {
     /// <summary>Current settlement configuration for the account.</summary>

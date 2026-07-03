@@ -12,6 +12,7 @@ namespace Xental.Application.Common.Interfaces;
 public interface IApplicationDbContext
 {
     DbSet<Tenant> Tenants { get; }
+    DbSet<TeamMember> TeamMembers { get; }
     DbSet<ApiKey> ApiKeys { get; }
     DbSet<EmailVerificationToken> EmailVerificationTokens { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }

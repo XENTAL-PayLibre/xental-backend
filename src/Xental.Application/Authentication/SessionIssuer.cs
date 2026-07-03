@@ -32,4 +32,17 @@ public sealed class SessionIssuer(
 
         return new IssuedSession(tenant.Id, tenant.Email, tenant.EmailVerified, access, raw, expires);
     }
+
+    /// <summary>Issue a session for a team member: scoped to the account's tenant, carrying the member's role.</summary>
+    public async Task<IssuedSession> IssueForMemberAsync(TeamMember member, CancellationToken ct = default)
+    {
+        var access = jwt.IssueDashboardToken(member.TenantId, member.Email, emailVerified: true, member.Role.ToString());
+        var raw = tokens.Generate("rt", 32);
+        var expires = clock.UtcNow.Add(links.RefreshTokenLifetime);
+
+        db.RefreshTokens.Add(new RefreshToken(member.TenantId, tokenHasher.Hash(raw), expires, teamMemberId: member.Id));
+        await db.SaveChangesAsync(ct);
+
+        return new IssuedSession(member.TenantId, member.Email, true, access, raw, expires);
+    }
 }

@@ -14,6 +14,12 @@ public static class AuthPolicies
     public const string Admin = "admin";
     public const string SuperAdmin = "super-admin";
 
+    // Role-gated dashboard policies (the session's team role: Owner / Admin / Developer / Employee).
+    public const string TeamManage = "team-manage";          // Owner, Admin
+    public const string ManageKeys = "manage-keys";          // Owner, Admin, Developer
+    public const string ManageSettings = "manage-settings";  // Owner, Admin
+
     public const string ScopeClaim = "scope";
     public const string AdminRoleClaim = "admin_role";
+    public const string RoleClaim = "team_role";
 }

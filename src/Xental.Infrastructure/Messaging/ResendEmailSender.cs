@@ -36,6 +36,15 @@ public sealed class ResendEmailSender(
              <p>This link expires soon. If you didn't request this, you can safely ignore this email — your password won't change.</p>
              """, ct);
 
+    public Task SendTeamInviteAsync(string toEmail, string inviteLink, string accountName, CancellationToken ct = default) =>
+        SendAsync(toEmail, $"You've been invited to {accountName} on Xental",
+            $"""
+             <p>You've been invited to join <strong>{accountName}</strong> on Xental.</p>
+             <p>Accept the invitation and set your password to get started:</p>
+             <p><a href="{inviteLink}">Accept invitation</a></p>
+             <p>This link expires in 7 days. If you weren't expecting this, you can ignore this email.</p>
+             """, ct);
+
     public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
         SendAsync(toEmail, subject, html, ct);
 

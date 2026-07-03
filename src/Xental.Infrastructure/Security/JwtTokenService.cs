@@ -32,16 +32,21 @@ public sealed class JwtTokenService : IJwtTokenService
         _credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
     }
 
-    /// <summary>Token for the developer dashboard (manage account + keys).</summary>
-    public AccessToken IssueDashboardToken(Tenant tenant)
+    /// <summary>Token for the developer dashboard (manage account + keys). The account owner is "Owner".</summary>
+    public AccessToken IssueDashboardToken(Tenant tenant) =>
+        IssueDashboardToken(tenant.Id, tenant.Email, tenant.EmailVerified, "Owner");
+
+    /// <summary>Dashboard token for a team member: the account's tenant id + the member's email + role.</summary>
+    public AccessToken IssueDashboardToken(Guid tenantId, string email, bool emailVerified, string role)
     {
         var claims = new List<Claim>
         {
-            new(JwtRegisteredClaimNames.Sub, tenant.Id.ToString()),
-            new("tenant_id", tenant.Id.ToString()),
-            new(JwtRegisteredClaimNames.Email, tenant.Email),
-            new("email_verified", tenant.EmailVerified ? "true" : "false"),
+            new(JwtRegisteredClaimNames.Sub, tenantId.ToString()),
+            new("tenant_id", tenantId.ToString()),
+            new(JwtRegisteredClaimNames.Email, email),
+            new("email_verified", emailVerified ? "true" : "false"),
             new("scope", DashboardScope),
+            new("team_role", role),
         };
         return Issue(claims, _options.DashboardTokenLifetimeSeconds);
     }

@@ -9,9 +9,11 @@ public interface ILinkBuilder
 {
     string EmailVerificationLink(string rawToken);
     string PasswordResetLink(string rawToken);
+    string TeamInviteLink(string rawToken);
 
     TimeSpan EmailVerificationTtl { get; }
     TimeSpan PasswordResetTtl { get; }
+    TimeSpan TeamInviteTtl { get; }
 
     /// <summary>How long a dashboard refresh token stays valid.</summary>
     TimeSpan RefreshTokenLifetime { get; }

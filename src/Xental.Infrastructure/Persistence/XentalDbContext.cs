@@ -24,6 +24,7 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     }
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
+    public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
@@ -58,6 +59,7 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(XentalDbContext).Assembly);
 
         // Row-level tenant isolation for every tenant-owned entity.
+        modelBuilder.Entity<TeamMember>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<ApiKey>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmailVerificationToken>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<PasswordResetToken>().HasQueryFilter(e => e.TenantId == CurrentTenantId);

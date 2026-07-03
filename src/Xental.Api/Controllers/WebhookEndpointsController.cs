@@ -14,7 +14,7 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/webhook-endpoints")]
-[Authorize(Policy = AuthPolicies.Dashboard)]
+[Authorize(Policy = AuthPolicies.ManageKeys)]
 public sealed class WebhookEndpointsController(WebhookEndpointService endpoints) : ControllerBase
 {
     /// <summary>Register a callback URL. Returns the signing secret once.</summary>

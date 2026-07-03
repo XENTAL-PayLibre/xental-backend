@@ -16,6 +16,7 @@ internal sealed class FakeEmailSender : IEmailSender
 {
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Verify = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Reset = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Invite = new();
 
     public Task SendEmailVerificationAsync(string toEmail, string verifyLink, CancellationToken ct = default)
     {
@@ -29,6 +30,12 @@ internal sealed class FakeEmailSender : IEmailSender
         return Task.CompletedTask;
     }
 
+    public Task SendTeamInviteAsync(string toEmail, string inviteLink, string accountName, CancellationToken ct = default)
+    {
+        Invite[toEmail] = inviteLink;
+        return Task.CompletedTask;
+    }
+
     public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
         Task.CompletedTask;
 
@@ -37,6 +44,9 @@ internal sealed class FakeEmailSender : IEmailSender
 
     public static string? ResetTokenFor(string email) =>
         Reset.TryGetValue(email, out var link) ? TokenFromLink(link) : null;
+
+    public static string? InviteTokenFor(string email) =>
+        Invite.TryGetValue(email, out var link) ? TokenFromLink(link) : null;
 
     private static string? TokenFromLink(string link)
     {
