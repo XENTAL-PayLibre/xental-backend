@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<Payments.TransferService>();
         services.AddScoped<Payments.InsightsService>();
         services.AddScoped<Payments.SettlementConfigService>();
+        services.AddScoped<Payments.SplitSettlementService>();
         services.AddScoped<Payments.CheckoutService>();
         services.AddScoped<Onboarding.OnboardingService>();
         services.AddScoped<Onboarding.DeveloperKycService>();

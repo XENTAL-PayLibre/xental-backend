@@ -35,6 +35,8 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<Transfer> Transfers => Set<Transfer>();
     public DbSet<SettlementConfig> SettlementConfigs => Set<SettlementConfig>();
+    public DbSet<SettlementSplit> SettlementSplits => Set<SettlementSplit>();
+    public DbSet<EscrowHold> EscrowHolds => Set<EscrowHold>();
     public DbSet<CheckoutSession> CheckoutSessions => Set<CheckoutSession>();
     public DbSet<WebhookEndpoint> WebhookEndpoints => Set<WebhookEndpoint>();
     public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
@@ -65,6 +67,8 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<VirtualAccount>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<Transfer>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<SettlementConfig>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<SettlementSplit>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<EscrowHold>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<CheckoutSession>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<WebhookEndpoint>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<WebhookDelivery>().HasQueryFilter(e => e.TenantId == CurrentTenantId);

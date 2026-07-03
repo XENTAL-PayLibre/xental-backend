@@ -23,6 +23,8 @@ public interface IApplicationDbContext
     DbSet<Transaction> Transactions { get; }
     DbSet<Transfer> Transfers { get; }
     DbSet<SettlementConfig> SettlementConfigs { get; }
+    DbSet<SettlementSplit> SettlementSplits { get; }
+    DbSet<EscrowHold> EscrowHolds { get; }
     DbSet<CheckoutSession> CheckoutSessions { get; }
     DbSet<WebhookEndpoint> WebhookEndpoints { get; }
     DbSet<WebhookDelivery> WebhookDeliveries { get; }

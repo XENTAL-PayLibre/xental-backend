@@ -289,3 +289,24 @@ public sealed record CheckoutSnapshotResponse(
     string PaymentState,
     long AmountPaidKobo,
     long? ExpectedAmountKobo);
+
+// ---- Split & Escrow settlement (differentiator) ----
+public sealed record SplitLegRequest(
+    [Required, StringLength(200, MinimumLength = 1)] string BeneficiaryName,
+    [Required] string AccountNumber,
+    [Required] string BankCode,
+    [Required] string Basis,               // "Percentage" | "Flat"
+    [Range(0, 10000)] int ShareBps,
+    [Range(0, long.MaxValue)] long FlatKobo,
+    int Priority);
+
+public sealed record SetSplitsRequest([Required] List<SplitLegRequest> Splits);
+
+public sealed record SplitLegResponse(
+    Guid Id, string BeneficiaryName, string AccountNumber, string BankCode,
+    string Basis, int ShareBps, long FlatKobo, int Priority, bool Enabled);
+
+public sealed record EscrowHoldRequest(string? ReleaseCondition);
+
+public sealed record EscrowHoldResponse(
+    Guid Id, string AccountRef, long AmountKobo, string State, string? ReleaseCondition, DateTimeOffset CreatedAtUtc);
