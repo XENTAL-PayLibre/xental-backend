@@ -28,6 +28,7 @@ public sealed class NombaWebhookService(
     INombaSignatureVerifier signatures,
     RiskEvaluator risk,
     OutboundEventPublisher outbound,
+    IReconciliationNotifier notifier,
     IClock clock)
 {
     public async Task<WebhookResult> ProcessAsync(byte[] rawBody, string? signatureHeader, string? timestampHeader, CancellationToken ct = default)
@@ -59,6 +60,7 @@ public sealed class NombaWebhookService(
                 gross, fee, TransactionStatus.Failed, ReconciliationStatus.Reversed,
                 TransactionFlag.Reversed, occurred, now));
             await db.SaveChangesAsync(ct);
+            if (account is not null) NotifyStatus(account, ReconciliationStatus.Reversed);
             return new WebhookResult(WebhookStatus.Reversed, inflow.Reference, ReconciliationStatus.Reversed, account?.PaymentState, TransactionFlag.Reversed);
         }
 
@@ -104,7 +106,23 @@ public sealed class NombaWebhookService(
         await outbound.PublishDepositAsync(account, txn, ct);
 
         await db.SaveChangesAsync(ct);
+
+        // Live Checkout: push the new status to any open subscribers. Best-effort, post-commit,
+        // and fully isolated — a notifier failure can never affect the reconciliation outcome.
+        NotifyStatus(account, reconciliation);
+
         return new WebhookResult(WebhookStatus.Processed, account.Reference, reconciliation, account.PaymentState, reason);
+    }
+
+    private void NotifyStatus(VirtualAccount account, ReconciliationStatus reconciliation)
+    {
+        try
+        {
+            notifier.Publish(new CheckoutStatusEvent(
+                account.Id, account.Reference, account.PaymentState.ToString(),
+                account.AmountPaidKobo, account.ExpectedAmountKobo, reconciliation.ToString()));
+        }
+        catch { /* pure notify path — swallow so it can't touch the money path */ }
     }
 
     private static bool NameMismatch(string? transferName, string? customerName)

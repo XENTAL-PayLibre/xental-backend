@@ -177,6 +177,7 @@ public class NombaWebhookServiceTests
         new(ctx, new FakeSignatureVerifier(sigOk),
             new RiskEvaluator(ctx, db.Clock),
             new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock),
+            new Xental.Infrastructure.Payments.InMemoryReconciliationNotifier(),
             db.Clock);
 
     [Fact]

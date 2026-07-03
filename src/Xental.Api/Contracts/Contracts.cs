@@ -268,3 +268,24 @@ public sealed record InsightsResponse(
     int HighRisk,
     int FullyPaidAccounts,
     int PartiallyPaidAccounts);
+
+// ---- Live Checkout (differentiator) ----
+public sealed record CreateCheckoutSessionRequest(
+    [Required] string AccountRef,
+    [Range(1, 86400)] int? TtlSeconds);
+
+public sealed record CheckoutSessionResponse(
+    string Token,
+    string SnapshotUrl,
+    string StreamUrl,
+    DateTimeOffset ExpiresAtUtc,
+    CheckoutSnapshotResponse Snapshot);
+
+public sealed record CheckoutSnapshotResponse(
+    string AccountRef,
+    string AccountNumber,
+    string BankName,
+    string AccountName,
+    string PaymentState,
+    long AmountPaidKobo,
+    long? ExpectedAmountKobo);
