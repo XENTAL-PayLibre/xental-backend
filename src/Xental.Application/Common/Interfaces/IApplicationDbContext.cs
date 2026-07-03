@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Xental.Domain.Admin;
 using Xental.Domain.Merchants;
+using Xental.Domain.Onboarding;
 using Xental.Domain.Payments;
 using Xental.Domain.Tenancy;
 using Xental.Domain.Webhooks;
@@ -23,6 +25,13 @@ public interface IApplicationDbContext
     DbSet<SettlementConfig> SettlementConfigs { get; }
     DbSet<WebhookEndpoint> WebhookEndpoints { get; }
     DbSet<WebhookDelivery> WebhookDeliveries { get; }
+    DbSet<OnboardingApplication> OnboardingApplications { get; }
+    DbSet<DeveloperKyc> DeveloperKycs { get; }
+    DbSet<BusinessKyb> BusinessKybs { get; }
+    DbSet<KycDocument> KycDocuments { get; }
+    DbSet<VerificationCheck> VerificationChecks { get; }
+    DbSet<AdminUser> AdminUsers { get; }
+    DbSet<AdminAuditLog> AdminAuditLogs { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -70,6 +70,27 @@ public static class DependencyInjection
         services.AddScoped<INombaClient, NombaClient>();
         services.AddSingleton<INombaSignatureVerifier, NombaSignatureVerifier>();
 
+        // Dojah identity verification (BVN/NIN/CAC data checks) for KYC automation.
+        services.AddOptions<Identity.DojahOptions>().Bind(configuration.GetSection(Identity.DojahOptions.SectionName));
+        services.AddHttpClient("dojah", (sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<Identity.DojahOptions>>().Value;
+            client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+            client.Timeout = TimeSpan.FromSeconds(20);
+        });
+        services.AddScoped<IIdentityVerifier, Identity.DojahIdentityVerifier>();
+
+        // KYC/KYB document storage (MinIO now, S3 later — same S3 API, config-only switch).
+        services.AddOptions<Storage.StorageOptions>().Bind(configuration.GetSection(Storage.StorageOptions.SectionName));
+        services.AddSingleton<IDocumentStorage, Storage.S3DocumentStorage>();
+
+        // Admin MFA (TOTP).
+        services.AddSingleton<ITotpService, Security.Totp>();
+
+        // Per-tenant tier limits (daily payout cap).
+        services.AddOptions<Xental.Application.Common.TierLimitOptions>()
+            .Bind(configuration.GetSection(Xental.Application.Common.TierLimitOptions.SectionName));
+
         // Outbound developer webhooks: at-rest secret encryption, SSRF guard, delivery worker.
         services.AddSingleton<ISecretProtector, AesSecretProtector>();
         services.AddSingleton<IOutboundUrlGuard, OutboundUrlGuard>();

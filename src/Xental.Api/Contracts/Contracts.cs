@@ -187,6 +187,72 @@ public sealed record SettlementConfigResponse(
     long MinPayoutKobo,
     bool CanAutoSettle);
 
+// ---- Onboarding / KYC (dashboard plane) ----
+/// <summary>The tenant's onboarding state. Sandbox on signup; Live after KYC + KYB approval.</summary>
+public sealed record OnboardingStatusResponse(
+    string Tier,                 // Sandbox | Live
+    string DeveloperKycStatus,   // NotStarted | InProgress | UnderReview | MoreInfoNeeded | Approved | Rejected
+    string BusinessKybStatus,
+    bool CanIssueLiveKeys,
+    DateTimeOffset? SubmittedAtUtc,
+    DateTimeOffset? DecidedAtUtc,
+    string? DecisionReason);
+
+/// <summary>Developer KYC submission (personal identity + regulatory id + bank + profile).</summary>
+public sealed record SubmitDeveloperKycRequest(
+    [Required, StringLength(200, MinimumLength = 2)] string FullName,
+    [Required] DateOnly DateOfBirth,
+    [Required, StringLength(100)] string Country,
+    [Required, StringLength(500)] string Address,
+    [Required, RegularExpression("^(Bvn|Nin)$", ErrorMessage = "IdType must be 'Bvn' or 'Nin'.")] string IdType,
+    [Required, StringLength(11, MinimumLength = 11)] string IdNumber,
+    [Required, StringLength(200)] string BankName,
+    [Required, StringLength(16)] string BankCode,
+    [Required, StringLength(200)] string BankAccountName,
+    [Required, StringLength(20)] string BankAccountNumber,
+    [Url, StringLength(500)] string? PortfolioUrl,
+    [StringLength(2000)] string? ProjectDescription);
+
+/// <summary>Business KYB submission (business info + contact + settlement account).</summary>
+public sealed record SubmitBusinessKybRequest(
+    [Required, StringLength(200, MinimumLength = 2)] string LegalName,
+    [Required, StringLength(50)] string RegistrationNumber,
+    [Required, StringLength(100)] string BusinessType,
+    [Required, StringLength(100)] string Industry,
+    [Required, StringLength(100)] string Country,
+    [Required, StringLength(500)] string Address,
+    [Required, StringLength(8)] string ContactCountryCode,
+    [Required, StringLength(32)] string ContactPhone,
+    [Url, StringLength(300)] string? Website,
+    [Required, StringLength(200)] string SettlementBankName,
+    [Required, StringLength(16)] string SettlementBankCode,
+    [Required, StringLength(200)] string SettlementAccountName,
+    [Required, StringLength(20)] string SettlementAccountNumber);
+
+/// <summary>Final attestation + submit (moves KYB to Under Review).</summary>
+public sealed record SubmitOnboardingRequest(
+    [Required] bool AttestationAccepted);
+
+// ---- Admin plane ----
+public sealed record AdminLoginRequest(
+    [Required, EmailAddress] string Email,
+    [Required] string Password,
+    string? TotpCode);
+
+public sealed record AdminLoginResponse(string AccessToken, string TokenType, int ExpiresIn, string Email, string Role);
+
+public sealed record CreateAdminRequest(
+    [Required, EmailAddress] string Email,
+    [Required, StringLength(128, MinimumLength = 12)] string Password,
+    [Required, RegularExpression("^(Admin|SuperAdmin)$", ErrorMessage = "Role must be 'Admin' or 'SuperAdmin'.")] string Role);
+
+/// <summary>Admin review action targeting a track; Reason required for reject / request-info.</summary>
+public sealed record ReviewActionRequest(
+    [Required, RegularExpression("^(DeveloperKyc|BusinessKyb)$")] string Track,
+    string? Reason);
+
+public sealed record MfaEnrollResponse(string OtpAuthUri);
+
 // ---- Insights (analytics) ----
 public sealed record InsightsResponse(
     int VirtualAccounts,

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Xental.Api.Authorization;
 using Xental.Api.Contracts;
 using Xental.Application.Payments;
@@ -14,6 +15,7 @@ namespace Xental.Api.Controllers;
 [ApiController]
 [Route("api/v1/transactions")]
 [Authorize(Policy = AuthPolicies.Api)]
+[EnableRateLimiting("api-key")]
 public sealed class TransactionsController(TransactionQueryService transactions) : ControllerBase
 {
     /// <summary>List transactions, filtered by date range, status, reconciliation, or accountRef.</summary>

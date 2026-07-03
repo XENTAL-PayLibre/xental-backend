@@ -184,6 +184,9 @@ public class ApiKeyServiceTests
     {
         using var db = new TestDatabase();
         db.Tenant.TenantId = await SeedTenantAsync(db);
+        // Live keys are gated on an approved onboarding; seed one for the Live case.
+        if (mode == ApiKeyMode.Live)
+            await OnboardingSeed.ApprovedLiveAsync(db, db.Tenant.TenantId!.Value);
         var hasher = new Pbkdf2SecretHasher();
 
         await using var ctx = db.CreateContext();
@@ -225,6 +228,7 @@ public class ApiKeyServiceTests
     {
         using var db = new TestDatabase();
         db.Tenant.TenantId = await SeedTenantAsync(db);
+        await OnboardingSeed.ApprovedLiveAsync(db, db.Tenant.TenantId!.Value); // Live keys require Live tier
         var tokens = new FakeTokenGenerator(); // shared so rotate mints a distinct client id
 
         Guid oldId;

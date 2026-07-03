@@ -37,6 +37,13 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     public DbSet<SettlementConfig> SettlementConfigs => Set<SettlementConfig>();
     public DbSet<WebhookEndpoint> WebhookEndpoints => Set<WebhookEndpoint>();
     public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
+    public DbSet<Xental.Domain.Onboarding.OnboardingApplication> OnboardingApplications => Set<Xental.Domain.Onboarding.OnboardingApplication>();
+    public DbSet<Xental.Domain.Onboarding.DeveloperKyc> DeveloperKycs => Set<Xental.Domain.Onboarding.DeveloperKyc>();
+    public DbSet<Xental.Domain.Onboarding.BusinessKyb> BusinessKybs => Set<Xental.Domain.Onboarding.BusinessKyb>();
+    public DbSet<Xental.Domain.Onboarding.KycDocument> KycDocuments => Set<Xental.Domain.Onboarding.KycDocument>();
+    public DbSet<Xental.Domain.Onboarding.VerificationCheck> VerificationChecks => Set<Xental.Domain.Onboarding.VerificationCheck>();
+    public DbSet<Xental.Domain.Admin.AdminUser> AdminUsers => Set<Xental.Domain.Admin.AdminUser>();
+    public DbSet<Xental.Domain.Admin.AdminAuditLog> AdminAuditLogs => Set<Xental.Domain.Admin.AdminAuditLog>();
 
     // Referenced by the tenant query filter; evaluated per query against the
     // current request's tenant. Guid.Empty (no tenant) matches no rows -> deny by default.
@@ -59,6 +66,11 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<SettlementConfig>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<WebhookEndpoint>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<WebhookDelivery>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Xental.Domain.Onboarding.OnboardingApplication>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Xental.Domain.Onboarding.DeveloperKyc>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Xental.Domain.Onboarding.BusinessKyb>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Xental.Domain.Onboarding.KycDocument>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Xental.Domain.Onboarding.VerificationCheck>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         // Transactions are written by the webhook processor without a tenant context (and may
         // have no tenant when the account is unknown), so no global filter — reads are filtered
         // explicitly by TenantId in the tenant-scoped services (Phase 5).
