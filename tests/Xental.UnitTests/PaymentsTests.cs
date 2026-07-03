@@ -178,6 +178,7 @@ public class NombaWebhookServiceTests
             new RiskEvaluator(ctx, db.Clock),
             new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock),
             new Xental.Infrastructure.Payments.InMemoryReconciliationNotifier(),
+            new RuleEngine(ctx, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), db.Clock),
             db.Clock);
 
     [Fact]

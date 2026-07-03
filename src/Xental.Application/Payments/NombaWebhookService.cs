@@ -29,6 +29,7 @@ public sealed class NombaWebhookService(
     RiskEvaluator risk,
     OutboundEventPublisher outbound,
     IReconciliationNotifier notifier,
+    RuleEngine rules,
     IClock clock)
 {
     public async Task<WebhookResult> ProcessAsync(byte[] rawBody, string? signatureHeader, string? timestampHeader, CancellationToken ct = default)
@@ -110,6 +111,11 @@ public sealed class NombaWebhookService(
         // Live Checkout: push the new status to any open subscribers. Best-effort, post-commit,
         // and fully isolated — a notifier failure can never affect the reconciliation outcome.
         NotifyStatus(account, reconciliation);
+
+        // Money Rules (Feature 3): react to the committed outcome. Post-commit + isolated, so a
+        // rule failure cannot corrupt the reconciliation that already succeeded.
+        try { await rules.EvaluateAsync(account, txn, ct); }
+        catch { /* rules are advisory — never fail the webhook over them */ }
 
         return new WebhookResult(WebhookStatus.Processed, account.Reference, reconciliation, account.PaymentState, reason);
     }

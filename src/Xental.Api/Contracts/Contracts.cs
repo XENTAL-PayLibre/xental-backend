@@ -310,3 +310,14 @@ public sealed record EscrowHoldRequest(string? ReleaseCondition);
 
 public sealed record EscrowHoldResponse(
     Guid Id, string AccountRef, long AmountKobo, string State, string? ReleaseCondition, DateTimeOffset CreatedAtUtc);
+
+// ---- Money Rules engine (differentiator) ----
+public sealed record CreateRuleRequest(
+    [Required] string Trigger,             // AnyDeposit | Overpaid | Underpaid | HighRisk | FullyPaid
+    [Required] string Action,              // Hold | Notify | ReviewFlag
+    [Range(0, long.MaxValue)] long? ThresholdKobo,
+    [Range(0, 100)] int? MinRiskScore,
+    int Priority);
+
+public sealed record RuleResponse(
+    Guid Id, string Trigger, string Action, long? ThresholdKobo, int? MinRiskScore, bool Enabled, int Priority);
