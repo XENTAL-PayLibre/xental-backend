@@ -126,6 +126,38 @@ public class Phase1EndToEndTests
     private const string AuthCookieWriter_AccessName = "xnt_access";
 
     [Fact]
+    public async Task Login_from_dev_insecure_origin_emits_host_only_lax_cookie()
+    {
+        using var f = new XentalApiFactory();
+        // Staging-style config (cross-site None + domain) but with localhost:3000 whitelisted as a
+        // dev-insecure origin so a local Next.js proxy can store/read the relayed HttpOnly cookie.
+        using var configured = f.WithWebHostBuilder(b =>
+        {
+            b.UseSetting("Auth:CookieSameSite", "None");
+            b.UseSetting("Auth:CookieDomain", ".staging.xental.online");
+            b.UseSetting("Auth:DevInsecureCookieOrigins", "http://localhost:3000");
+        });
+        var client = configured.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false });
+
+        var email = NewEmail();
+        await RegisterAsync(client, email);
+        await VerifyAsync(client, email);
+
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/developers/login")
+        {
+            Content = JsonContent.Create(new { email, password = Password }),
+        };
+        req.Headers.Add("Origin", "http://localhost:3000");
+        var login = await client.SendAsync(req);
+        login.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var access = login.Headers.GetValues("Set-Cookie").First(c => c.StartsWith(AuthCookieWriter_AccessName)).ToLowerInvariant();
+        access.Should().Contain("samesite=lax");
+        access.Should().NotContain("domain=");  // host-only so the dev proxy's host owns it
+        access.Should().NotContain("secure");   // plain http on localhost
+    }
+
+    [Fact]
     public async Task Wrong_password_is_unauthorized()
     {
         using var f = new XentalApiFactory();
