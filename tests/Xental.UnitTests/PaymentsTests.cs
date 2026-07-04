@@ -127,7 +127,7 @@ public class VirtualAccountServiceTests
 
         await using var ctx = db.CreateContext();
         var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("9011223344"));
-        var va = await svc.CreateAsync("stu-001", "Ada Payer", "ada@x.com", null, 500_00, null);
+        var va = await svc.CreateAsync("stu-001", "Ada Payer", "ada@x.com", null, 500_00, null, null);
 
         va.AccountNumber.Should().Be("9011223344");
         va.Reference.Should().Be("stu-001");
@@ -143,10 +143,10 @@ public class VirtualAccountServiceTests
         using var db = new TestDatabase();
         db.Tenant.TenantId = await SeedTenantAsync(db);
         await using (var ctx = db.CreateContext())
-            await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "A", null, null, null, null);
+            await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "A", null, null, null, null, null);
 
         await using var ctx2 = db.CreateContext();
-        var act = () => new VirtualAccountService(ctx2, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "B", null, null, null, null);
+        var act = () => new VirtualAccountService(ctx2, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "B", null, null, null, null, null);
         await act.Should().ThrowAsync<ConflictException>();
     }
 }

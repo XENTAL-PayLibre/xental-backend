@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Xental.Domain.Merchants;
 using Xental.Domain.Payments;
 using Xental.Domain.Tenancy;
 
@@ -37,12 +38,15 @@ public sealed class VirtualAccountConfiguration : IEntityTypeConfiguration<Virtu
         b.Property(x => x.ProviderAccountId).HasMaxLength(100);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
         b.Property(x => x.PaymentState).HasConversion<string>().HasMaxLength(16);
+        b.Property(x => x.SettledUpToKobo).HasDefaultValue(0L);
         b.Property(x => x.CreatedAtUtc).IsRequired();
 
         b.HasIndex(x => new { x.TenantId, x.Reference }).IsUnique();
         b.HasIndex(x => x.AccountNumber).IsUnique(); // NUBAN maps to exactly one virtual account
+        b.HasIndex(x => x.SubMerchantId); // settlement routing + per-sub-merchant balance queries
         b.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne<Customer>().WithMany().HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne<SubMerchant>().WithMany().HasForeignKey(x => x.SubMerchantId).OnDelete(DeleteBehavior.SetNull);
     }
 }
 

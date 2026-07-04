@@ -16,6 +16,11 @@ public sealed class SubMerchantConfiguration : IEntityTypeConfiguration<SubMerch
         b.Property(x => x.Name).IsRequired().HasMaxLength(200);
         b.Property(x => x.Reference).IsRequired().HasMaxLength(100);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+        b.Property(x => x.SettlementBankName).HasMaxLength(200);
+        b.Property(x => x.SettlementBankCode).HasMaxLength(16);
+        b.Property(x => x.SettlementAccountNumber).HasMaxLength(20);
+        b.Property(x => x.SettlementAccountName).HasMaxLength(200);
+        b.Property(x => x.PlatformFeeBps).HasDefaultValue(0);
         b.Property(x => x.CreatedAtUtc).IsRequired();
 
         // Reference is unique per tenant.
