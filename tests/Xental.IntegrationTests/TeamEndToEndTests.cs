@@ -24,8 +24,7 @@ public class TeamEndToEndTests
             .StatusCode.Should().Be(HttpStatusCode.Created);
         var token = FakeEmailSender.VerificationTokenFor(email);
         await client.GetAsync($"/api/v1/developers/verify-email?token={token}");
-        (await client.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        await DashboardLogin.CompleteAsync(client, email, Password);
         return client;
     }
 
@@ -65,10 +64,9 @@ public class TeamEndToEndTests
         var accept = await NewClient(f).PostAsJsonAsync("/api/v1/team/accept", new { token = inviteToken, password = Password });
         accept.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
-        // The member can now sign in to the same account.
+        // The member can now sign in to the same account (two-step: password + emailed OTP).
         var member = NewClient(f);
-        (await member.PostAsJsonAsync("/api/v1/developers/login", new { email = memberEmail, password = Password }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        await DashboardLogin.CompleteAsync(member, memberEmail, Password);
 
         // RBAC: a Developer can manage API keys but NOT the team (Admin/Owner only).
         (await member.GetAsync("/api/v1/api-keys")).StatusCode.Should().Be(HttpStatusCode.OK);

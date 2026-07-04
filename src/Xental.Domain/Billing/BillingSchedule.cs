@@ -100,10 +100,19 @@ public sealed class BillingSchedule : BaseEntity, ITenantOwned
 
     /// <summary>Open the next period and advance the schedule's counters. The caller persists the
     /// returned period, then runs attribution — which applies any carried-over credit to it. Carry is
-    /// owned entirely by attribution, so this does not touch it.</summary>
+    /// owned entirely by attribution, so this does not touch it.
+    ///
+    /// If the schedule is behind (paused for months then resumed, or the worker was offline), cycles
+    /// that have already fully elapsed are skipped rather than materialized one-per-tick — otherwise the
+    /// worker would emit a back-dated period, a "due" email, and an immediate "overdue" email for every
+    /// missed cycle. Only the current live period is opened.</summary>
     public BillingPeriod OpenNextPeriod(DateTimeOffset now)
     {
         var start = CurrentPeriodEndUtc is { } end && end > DateTimeOffset.UnixEpoch ? end : now;
+        // Fast-forward over fully-elapsed cycles (guard bounds ~a century of weekly cycles).
+        var guard = 0;
+        while (Interval.Advance(start) <= now && guard++ < 6000)
+            start = Interval.Advance(start);
         var periodEnd = Interval.Advance(start);
         var due = DueOffsetDays > 0 ? start.AddDays(DueOffsetDays) : start;
 
@@ -120,6 +129,14 @@ public sealed class BillingSchedule : BaseEntity, ITenantOwned
     public void RecordAttribution(long attributedUpToKobo, long leftoverCreditKobo)
     {
         AttributedUpToKobo = Math.Max(AttributedUpToKobo, attributedUpToKobo);
+        CarryCreditKobo = Math.Max(0, leftoverCreditKobo);
+    }
+
+    /// <summary>Set the attributed water-mark directly (allowing it to move *down*). Used only when a
+    /// reversal lowers the account balance and periods are redistributed from scratch.</summary>
+    public void ResetAttribution(long attributedUpToKobo, long leftoverCreditKobo)
+    {
+        AttributedUpToKobo = Math.Max(0, attributedUpToKobo);
         CarryCreditKobo = Math.Max(0, leftoverCreditKobo);
     }
 }

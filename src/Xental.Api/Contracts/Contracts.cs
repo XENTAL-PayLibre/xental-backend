@@ -14,6 +14,18 @@ public sealed record LoginRequest(
     [Required, EmailAddress] string Email,
     [Required] string Password);
 
+/// <summary>Step 1 login response: a code was emailed; verify it to finish signing in.</summary>
+public sealed record LoginChallengeResponse(string Email, DateTimeOffset ExpiresAtUtc, string Message)
+{
+    /// <summary>Always true — dashboard login requires an emailed code.</summary>
+    public bool OtpRequired => true;
+}
+
+/// <summary>Step 2 login: the emailed one-time code.</summary>
+public sealed record VerifyLoginOtpRequest(
+    [Required, EmailAddress] string Email,
+    [Required, StringLength(6, MinimumLength = 6)] string Code);
+
 /// <summary>Register response — no token; the account must verify its email first.</summary>
 public sealed record RegisterResponse(
     Guid TenantId,

@@ -32,7 +32,8 @@ public class NombaSignatureVerifierTests
     }
 
     private static NombaSignatureVerifier Verifier() =>
-        new(Options.Create(new NombaOptions { WebhookSecret = Secret }));
+        new(Options.Create(new NombaOptions { WebhookSecret = Secret, WebhookMaxAgeMinutes = 0 }),
+            new FakeClock(DateTimeOffset.Parse("2026-01-01T00:00:00Z")));
 
     [Fact]
     public void Accepts_a_correctly_signed_payload()
@@ -194,7 +195,7 @@ public class NombaWebhookServiceTests
             new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock),
             new Xental.Infrastructure.Payments.InMemoryReconciliationNotifier(),
             new RuleEngine(ctx, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), db.Clock),
-            new Xental.Application.Billing.BillingService(ctx, db.Tenant, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), new FakeEmailSender(), db.Clock),
+            new Xental.Application.Billing.BillingService(ctx, db.Tenant, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), new FakeEmailSender(), new FakeAlerter(), db.Clock),
             db.Clock);
 
     [Fact]

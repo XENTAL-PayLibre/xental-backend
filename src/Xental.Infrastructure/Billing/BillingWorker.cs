@@ -41,6 +41,9 @@ public sealed class BillingWorker(
         var now = clock.UtcNow;
 
         var opened = await billing.OpenDuePeriodsAsync(now, ct);
+        // Backstop: attribute any deposits the webhook path missed (e.g. it lost an xmin race with the
+        // worker). Idempotent via the water-mark, so caught-up schedules are a no-op.
+        await billing.AttributePendingAsync(ct);
         var reminded = await billing.SendDueRemindersAsync(now, ct);
         var overdue = await billing.MarkOverdueAsync(now, ct);
 

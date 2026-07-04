@@ -93,9 +93,34 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(Xental.Application.Common.TierLimitOptions.SectionName));
 
         // Outbound developer webhooks: at-rest secret encryption, SSRF guard, delivery worker.
+        services.AddOptions<Configuration.EncryptionOptions>().Bind(configuration.GetSection(Configuration.EncryptionOptions.SectionName));
         services.AddSingleton<ISecretProtector, AesSecretProtector>();
         services.AddSingleton<IOutboundUrlGuard, OutboundUrlGuard>();
-        services.AddHttpClient("outbound-webhook");
+        // SSRF-hardened client for delivering developer webhooks: no auto-redirect (a 3xx to an
+        // internal/metadata host is never followed), and a connect callback that re-resolves the host
+        // and refuses to connect to any non-public address — pinning the socket to the exact validated
+        // IP so a DNS-rebinding flip between the pre-check and the connect can't reach internal targets.
+        services.AddHttpClient("outbound-webhook")
+            .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                ConnectCallback = async (context, ct) =>
+                {
+                    var host = context.DnsEndPoint.Host;
+                    var port = context.DnsEndPoint.Port;
+                    var addresses = await System.Net.Dns.GetHostAddressesAsync(host, ct);
+                    if (addresses.Length == 0 || !addresses.All(OutboundUrlGuard.IsPublic))
+                        throw new IOException($"Refusing to connect to '{host}' — it resolves to a non-public address.");
+                    var target = addresses.First(OutboundUrlGuard.IsPublic);
+                    var socket = new System.Net.Sockets.Socket(System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp) { NoDelay = true };
+                    try
+                    {
+                        await socket.ConnectAsync(new System.Net.IPEndPoint(target, port), ct);
+                        return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch { socket.Dispose(); throw; }
+                },
+            });
         services.AddHostedService<WebhookDeliveryWorker>();
 
         // Auto-settlement: sweep fully-paid accounts to the tenant's bank when they opt in.

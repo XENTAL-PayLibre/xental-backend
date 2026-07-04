@@ -22,4 +22,9 @@ public sealed class SettlementOptions
     /// <summary>Base back-off (minutes) between payout retries; grows linearly with the attempt number
     /// (retry 1 waits 1×, retry 2 waits 2×, …). Default 5 minutes.</summary>
     public int RetryBackoffMinutes { get; set; } = 5;
+
+    /// <summary>A payout still <c>Pending</c> after this many minutes is treated as stuck (a crash may
+    /// have left it in-flight at the provider). It is NOT auto-retried — that could double-pay — but an
+    /// operator is alerted to reconcile it against Nomba manually. Default 30 minutes.</summary>
+    public int StalePayoutMinutes { get; set; } = 30;
 }

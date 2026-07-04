@@ -31,7 +31,7 @@ public class SandboxSimulatorTests
         await dash.PostAsJsonAsync("/api/v1/developers/register", new { name = "Dev", email, password = Password });
         var token = FakeEmailSender.VerificationTokenFor(email);
         await dash.GetAsync($"/api/v1/developers/verify-email?token={token}");
-        await dash.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password });
+        await DashboardLogin.CompleteAsync(dash, email, Password);
         var key = (await (await dash.PostAsJsonAsync("/api/v1/api-keys", new { label = "key", mode })).Content.ReadFromJsonAsync<ApiKeyResponse>())!;
         var access = (await (await dash.PostAsJsonAsync("/api/v1/auth/token", new { clientId = key.ClientId, clientSecret = key.ClientSecret })).Content.ReadFromJsonAsync<TokenResponse>())!.AccessToken;
         var api = NewClient(f);

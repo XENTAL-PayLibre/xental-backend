@@ -14,7 +14,7 @@ namespace Xental.UnitTests;
 public class BillingTests
 {
     private static BillingService MakeBilling(XentalDbContext ctx, TestDatabase db, FakeEmailSender? email = null) =>
-        new(ctx, db.Tenant, new OutboundEventPublisher(ctx, db.Clock), email ?? new FakeEmailSender(), db.Clock);
+        new(ctx, db.Tenant, new OutboundEventPublisher(ctx, db.Clock), email ?? new FakeEmailSender(), new FakeAlerter(), db.Clock);
 
     /// <summary>Seed a tenant + customer + reusable (open) DVA and make it the current tenant.</summary>
     private static async Task<Guid> SeedAsync(XentalDbContext ctx, TestDatabase db)

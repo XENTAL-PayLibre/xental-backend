@@ -4,6 +4,9 @@ namespace Xental.Application.Common.Interfaces;
 public interface IEmailSender
 {
     Task SendEmailVerificationAsync(string toEmail, string verifyLink, CancellationToken ct = default);
+
+    /// <summary>Second-factor login code (6-digit OTP) emailed after a correct password.</summary>
+    Task SendLoginOtpAsync(string toEmail, string code, CancellationToken ct = default);
     Task SendPasswordResetAsync(string toEmail, string resetLink, CancellationToken ct = default);
     Task SendTeamInviteAsync(string toEmail, string inviteLink, string accountName, CancellationToken ct = default);
     Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default);

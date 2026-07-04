@@ -15,7 +15,7 @@ namespace Xental.Infrastructure.Nomba;
 /// <c>nomba-signature</c> header (constant-time). Fails closed if no secret is configured.
 /// See https://developer.nomba.com/docs/api-basics/webhook.
 /// </summary>
-public sealed class NombaSignatureVerifier(IOptions<NombaOptions> options) : INombaSignatureVerifier
+public sealed class NombaSignatureVerifier(IOptions<NombaOptions> options, IClock clock) : INombaSignatureVerifier
 {
     private readonly NombaOptions _options = options.Value;
 
@@ -23,6 +23,17 @@ public sealed class NombaSignatureVerifier(IOptions<NombaOptions> options) : INo
     {
         if (string.IsNullOrWhiteSpace(_options.WebhookSecret) || string.IsNullOrWhiteSpace(signatureHeader))
             return false;
+
+        // Bound the replay window: a captured-but-valid envelope can't be replayed indefinitely.
+        // Deliberately generous (default 24h) and fail-open when the timestamp can't be parsed, so
+        // legitimate — sometimes long-delayed — Nomba retries are never dropped; the HMAC still gates
+        // authenticity and the transaction-reference dedupe still blocks double-credit.
+        if (_options.WebhookMaxAgeMinutes > 0 && TryParseTimestamp(timestampHeader, out var sentAt))
+        {
+            var age = clock.UtcNow - sentAt;
+            if (age > TimeSpan.FromMinutes(_options.WebhookMaxAgeMinutes) || age < TimeSpan.FromMinutes(-_options.WebhookMaxAgeMinutes))
+                return false;
+        }
 
         string hashingPayload;
         try
@@ -52,10 +63,27 @@ public sealed class NombaSignatureVerifier(IOptions<NombaOptions> options) : INo
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(_options.WebhookSecret));
         var computed = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(hashingPayload)));
 
-        var provided = signatureHeader.Trim();
-        var a = Encoding.UTF8.GetBytes(computed.ToLowerInvariant());
-        var b = Encoding.UTF8.GetBytes(provided.ToLowerInvariant());
+        // Compare the exact Base64 bytes (case-sensitive — Base64 is). Constant-time.
+        var a = Encoding.UTF8.GetBytes(computed);
+        var b = Encoding.UTF8.GetBytes(signatureHeader.Trim());
         return a.Length == b.Length && CryptographicOperations.FixedTimeEquals(a, b);
+    }
+
+    /// <summary>Parse the <c>nomba-timestamp</c> header, accepting epoch seconds, epoch milliseconds, or
+    /// an ISO-8601 datetime. Returns false (skip the freshness check) for anything else.</summary>
+    private static bool TryParseTimestamp(string? header, out DateTimeOffset when)
+    {
+        when = default;
+        if (string.IsNullOrWhiteSpace(header)) return false;
+        var s = header.Trim();
+        if (long.TryParse(s, out var epoch))
+        {
+            // Heuristic: 13+ digits => milliseconds, otherwise seconds.
+            when = s.Length >= 13 ? DateTimeOffset.FromUnixTimeMilliseconds(epoch) : DateTimeOffset.FromUnixTimeSeconds(epoch);
+            return true;
+        }
+        return DateTimeOffset.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out when);
     }
 
     private static string Str(JsonElement el, string name) =>

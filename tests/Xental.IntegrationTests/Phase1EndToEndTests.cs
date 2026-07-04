@@ -43,8 +43,7 @@ public class Phase1EndToEndTests
         var client = NewClient(f);
         await RegisterAsync(client, email);
         await VerifyAsync(client, email);
-        var login = await client.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password });
-        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        await DashboardLogin.CompleteAsync(client, email, Password);
         return client;
     }
 
@@ -113,7 +112,10 @@ public class Phase1EndToEndTests
         var email = NewEmail();
         await RegisterAsync(client, email);
         await VerifyAsync(client, email);
-        var login = await client.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password });
+        var begin = await client.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password });
+        begin.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var code = FakeEmailSender.OtpFor(email);
+        var login = await client.PostAsJsonAsync("/api/v1/developers/login/verify", new { email, code });
 
         login.StatusCode.Should().Be(HttpStatusCode.OK);
         var access = login.Headers.GetValues("Set-Cookie").First(c => c.StartsWith(AuthCookieWriter_AccessName));
@@ -143,9 +145,14 @@ public class Phase1EndToEndTests
         await RegisterAsync(client, email);
         await VerifyAsync(client, email);
 
-        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/developers/login")
+        var begin = await client.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password });
+        begin.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        var code = FakeEmailSender.OtpFor(email);
+
+        // Cookies are set on the verify step, so the dev-insecure Origin must be sent there.
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/developers/login/verify")
         {
-            Content = JsonContent.Create(new { email, password = Password }),
+            Content = JsonContent.Create(new { email, code }),
         };
         req.Headers.Add("Origin", "http://localhost:3000");
         var login = await client.SendAsync(req);
