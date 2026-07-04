@@ -65,13 +65,14 @@ public sealed class BusinessKybService(
         var hash = Convert.ToHexString(await SHA256.HashDataAsync(buffer, ct)).ToLowerInvariant();
         buffer.Position = 0;
 
+        var size = buffer.Length; // capture before upload — the storage client may consume the stream
         var objectKey = $"kyc/{tenantId:N}/{type}/{Guid.NewGuid():N}";
         await storage.PutAsync(objectKey, buffer, contentType, ct);
 
         // Replace any previous document of the same type.
         var existing = await db.KycDocuments.Where(d => d.TenantId == tenantId && d.Type == type).ToListAsync(ct);
         db.KycDocuments.RemoveRange(existing);
-        db.KycDocuments.Add(new KycDocument(tenantId, type, objectKey, hash, contentType, buffer.Length));
+        db.KycDocuments.Add(new KycDocument(tenantId, type, objectKey, hash, contentType, size));
         await db.SaveChangesAsync(ct);
     }
 
