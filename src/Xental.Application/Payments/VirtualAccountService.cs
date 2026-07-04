@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
+using Xental.Domain.Merchants;
 using Xental.Domain.Payments;
 
 namespace Xental.Application.Payments;
@@ -17,7 +18,7 @@ public sealed class VirtualAccountService(
 {
     public async Task<VirtualAccount> CreateAsync(
         string accountRef, string name, string? email, string? phone,
-        long? expectedAmountKobo, DateTimeOffset? expiryDateUtc, CancellationToken ct = default)
+        long? expectedAmountKobo, DateTimeOffset? expiryDateUtc, string? subMerchantRef, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(accountRef))
             throw new ValidationException("accountRef is required.");
@@ -28,6 +29,17 @@ public sealed class VirtualAccountService(
 
         var tenantId = tenantContext.RequireTenantId();
         var reference = accountRef.Trim();
+
+        // Optionally attach the NUBAN to a sub-merchant, which routes its settlement to that
+        // sub-merchant's payout account.
+        Guid? subMerchantId = null;
+        if (!string.IsNullOrWhiteSpace(subMerchantRef))
+        {
+            var subRef = subMerchantRef.Trim();
+            var sub = await db.SubMerchants.FirstOrDefaultAsync(s => s.Reference == subRef && s.Status == SubMerchantStatus.Active, ct)
+                ?? throw new NotFoundException($"No active sub-merchant with reference '{subRef}'.");
+            subMerchantId = sub.Id;
+        }
 
         if (await db.VirtualAccounts.AnyAsync(v => v.Reference == reference, ct))
             throw new ConflictException($"A virtual account already exists for accountRef '{reference}'.");
@@ -44,7 +56,7 @@ public sealed class VirtualAccountService(
         var account = new VirtualAccount(
             tenantId, customer.Id, reference,
             provisioned.AccountNumber, provisioned.BankName, provisioned.AccountName,
-            provisioned.ProviderAccountId, expectedAmountKobo, expiryDateUtc);
+            provisioned.ProviderAccountId, expectedAmountKobo, expiryDateUtc, subMerchantId);
         db.VirtualAccounts.Add(account);
 
         await db.SaveChangesAsync(ct);

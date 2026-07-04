@@ -341,7 +341,7 @@ public class SubMerchantServiceTests
         db.Tenant.TenantId = tenantId;
 
         await using var ctx = db.CreateContext();
-        var sub = await new SubMerchantService(ctx, db.Tenant).CreateAsync("Green School", "sch-001");
+        var sub = await new SubMerchantService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("Green School", "sch-001");
 
         sub.Status.Should().Be(SubMerchantStatus.Active);
         sub.TenantId.Should().Be(tenantId);
@@ -355,10 +355,10 @@ public class SubMerchantServiceTests
         db.Tenant.TenantId = tenantId;
 
         await using (var ctx = db.CreateContext())
-            await new SubMerchantService(ctx, db.Tenant).CreateAsync("School A", "dup");
+            await new SubMerchantService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("School A", "dup");
 
         await using var ctx2 = db.CreateContext();
-        var act = () => new SubMerchantService(ctx2, db.Tenant).CreateAsync("School A again", "dup");
+        var act = () => new SubMerchantService(ctx2, db.Tenant, new FakeNombaClient()).CreateAsync("School A again", "dup");
         await act.Should().ThrowAsync<ConflictException>();
     }
 
@@ -371,20 +371,20 @@ public class SubMerchantServiceTests
 
         db.Tenant.TenantId = tenantA;
         await using (var ctx = db.CreateContext())
-            await new SubMerchantService(ctx, db.Tenant).CreateAsync("A School", "shared-ref");
+            await new SubMerchantService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("A School", "shared-ref");
 
         // Tenant B cannot see A's data ...
         db.Tenant.TenantId = tenantB;
         await using (var ctx = db.CreateContext())
         {
-            var listForB = await new SubMerchantService(ctx, db.Tenant).ListAsync();
+            var listForB = await new SubMerchantService(ctx, db.Tenant, new FakeNombaClient()).ListAsync();
             listForB.Should().BeEmpty("B must not see A's sub-merchants");
         }
 
         // ... and B can reuse the same reference (uniqueness is per-tenant)
         await using (var ctx = db.CreateContext())
         {
-            var act = () => new SubMerchantService(ctx, db.Tenant).CreateAsync("B School", "shared-ref");
+            var act = () => new SubMerchantService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("B School", "shared-ref");
             await act.Should().NotThrowAsync();
         }
 
@@ -392,7 +392,7 @@ public class SubMerchantServiceTests
         db.Tenant.TenantId = tenantA;
         await using (var ctx = db.CreateContext())
         {
-            var listForA = await new SubMerchantService(ctx, db.Tenant).ListAsync();
+            var listForA = await new SubMerchantService(ctx, db.Tenant, new FakeNombaClient()).ListAsync();
             listForA.Should().ContainSingle().Which.Name.Should().Be("A School");
         }
     }

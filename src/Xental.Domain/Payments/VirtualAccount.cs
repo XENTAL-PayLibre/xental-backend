@@ -17,6 +17,7 @@ public sealed class VirtualAccount : BaseEntity, ITenantOwned
 {
     public Guid TenantId { get; private set; }
     public Guid CustomerId { get; private set; }
+    public Guid? SubMerchantId { get; private set; }            // optional owner: routes settlement to a sub-merchant
     public string Reference { get; private set; } = null!;      // accountRef (unique per tenant)
 
     public string AccountNumber { get; private set; } = null!;  // NUBAN
@@ -30,21 +31,25 @@ public sealed class VirtualAccount : BaseEntity, ITenantOwned
 
     public VirtualAccountStatus Status { get; private set; }
     public PaymentState PaymentState { get; private set; }
-    /// <summary>Set once collected funds have been swept to the tenant's settlement account.</summary>
+    /// <summary>Set/updated each time collected funds are swept. For reusable accounts it reflects the last sweep.</summary>
     public DateTimeOffset? SettledAtUtc { get; private set; }
+    /// <summary>High-water mark (net kobo) already settled — lets reusable accounts settle incrementally without double-paying.</summary>
+    public long SettledUpToKobo { get; private set; }
 
     private VirtualAccount() { } // EF
 
     public VirtualAccount(
         Guid tenantId, Guid customerId, string reference,
         string accountNumber, string bankName, string accountName,
-        string? providerAccountId = null, long? expectedAmountKobo = null, DateTimeOffset? expiryDateUtc = null)
+        string? providerAccountId = null, long? expectedAmountKobo = null, DateTimeOffset? expiryDateUtc = null,
+        Guid? subMerchantId = null)
     {
         if (tenantId == Guid.Empty) throw new DomainException("TenantId is required.");
         if (customerId == Guid.Empty) throw new DomainException("CustomerId is required.");
         if (expectedAmountKobo is < 0) throw new DomainException("Expected amount cannot be negative.");
         TenantId = tenantId;
         CustomerId = customerId;
+        SubMerchantId = subMerchantId;
         Reference = DomainException.Require(reference, nameof(reference));
         AccountNumber = DomainException.Require(accountNumber, nameof(accountNumber));
         BankName = DomainException.Require(bankName, nameof(bankName));
@@ -98,6 +103,16 @@ public sealed class VirtualAccount : BaseEntity, ITenantOwned
 
     public bool IsSettled => SettledAtUtc is not null;
     public void MarkSettled(DateTimeOffset at) => SettledAtUtc = at;
+
+    /// <summary>Net collected so far that has not yet been settled out.</summary>
+    public long UnsettledKobo(long netCollectedKobo) => Math.Max(0, netCollectedKobo - SettledUpToKobo);
+
+    /// <summary>Advance the settled water-mark to <paramref name="netCollectedKobo"/> after a successful sweep.</summary>
+    public void MarkSettledUpTo(long netCollectedKobo, DateTimeOffset at)
+    {
+        SettledUpToKobo = Math.Max(SettledUpToKobo, netCollectedKobo);
+        SettledAtUtc = at;
+    }
 
     public void Close() => Status = VirtualAccountStatus.Closed;
 }

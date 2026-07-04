@@ -36,6 +36,31 @@ public sealed class SubMerchantsController(SubMerchantService subMerchants) : Co
         return Ok(subs.Select(ToResponse));
     }
 
+    /// <summary>Set the sub-merchant's payout account + platform fee. The account is bank-verified (NUBAN
+    /// name-match) and the settlement worker routes this sub-merchant's collections here.</summary>
+    /// <response code="400">Payout account could not be verified.</response>
+    [HttpPut("{id:guid}/payout")]
+    [ProducesResponseType(typeof(SubMerchantResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<SubMerchantResponse>> SetPayout(Guid id, SetSubMerchantPayoutRequest request, CancellationToken ct)
+    {
+        var sub = await subMerchants.SetPayoutAsync(id, request.BankName, request.BankCode, request.AccountNumber, request.PlatformFeeBps, ct);
+        return Ok(ToResponse(sub));
+    }
+
+    /// <summary>Collected / settled / pending balance for a sub-merchant (net kobo).</summary>
+    [HttpGet("{id:guid}/balance")]
+    [ProducesResponseType(typeof(SubMerchantBalanceResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<SubMerchantBalanceResponse>> Balance(Guid id, CancellationToken ct)
+    {
+        var b = await subMerchants.GetBalanceAsync(id, ct);
+        return Ok(new SubMerchantBalanceResponse(b.SubMerchantId, b.Reference, b.CollectedKobo, b.SettledKobo, b.PendingKobo, b.VirtualAccounts));
+    }
+
     private static SubMerchantResponse ToResponse(SubMerchant s) =>
-        new(s.Id, s.Name, s.Reference, s.Status.ToString(), s.CreatedAtUtc);
+        new(s.Id, s.Name, s.Reference, s.Status.ToString(), s.HasPayoutAccount,
+            s.SettlementBankName, s.SettlementBankCode, s.SettlementAccountNumber, s.SettlementAccountName,
+            s.PlatformFeeBps, s.CreatedAtUtc);
 }

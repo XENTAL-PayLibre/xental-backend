@@ -4,15 +4,17 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Xental.Application.Common.Interfaces;
 using Xental.Domain.Common;
+using Xental.Domain.Merchants;
 using Xental.Domain.Payments;
 
 namespace Xental.Infrastructure.Payments;
 
 /// <summary>
-/// Closes the loop: when a virtual account is fully paid and the tenant has auto-settle on,
-/// sweeps the net collected amount (deposits less provider fees) to their settlement bank
-/// account. Idempotent per account (a single <c>settle-{id}</c> transfer), threshold-aware, and
-/// decoupled from the webhook hot path.
+/// Closes the loop: sweeps the net collected amount (deposits less provider fees) out of virtual
+/// accounts to wherever they should settle — the tenant's settlement account, a split plan, or a
+/// sub-merchant's payout account (minus the operator's platform fee). Fixed-amount accounts settle
+/// once fully paid; reusable/open accounts settle incrementally against a watermark. Idempotent per
+/// settlement round (<c>settle-{id}-{net}</c>), threshold-aware, and off the webhook hot path.
 /// </summary>
 public sealed class SettlementWorker(
     IServiceScopeFactory scopeFactory,
@@ -44,8 +46,13 @@ public sealed class SettlementWorker(
         var clock = scope.ServiceProvider.GetRequiredService<IClock>();
         var now = clock.UtcNow;
 
+        // Candidates: active accounts with gross beyond the settled water-mark. Fixed-amount accounts
+        // only once complete; open/reusable accounts whenever they have accrued something new.
         var due = await db.VirtualAccounts.IgnoreQueryFilters()
-            .Where(v => v.PaymentState == PaymentState.FullyPaid && v.SettledAtUtc == null && v.Status == VirtualAccountStatus.Active)
+            .Where(v => v.Status == VirtualAccountStatus.Active && v.AmountPaidKobo > v.SettledUpToKobo
+                && (v.ExpectedAmountKobo == null
+                    || v.PaymentState == PaymentState.FullyPaid
+                    || v.PaymentState == PaymentState.Overpaid))
             .Take(BatchSize)
             .ToListAsync(ct);
         if (due.Count == 0)
@@ -59,75 +66,140 @@ public sealed class SettlementWorker(
             if (held)
                 continue;
 
-            var config = await db.SettlementConfigs.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(s => s.TenantId == account.TenantId, ct);
-            if (config is null || !config.CanAutoSettle)
-                continue; // not opted in / not configured — leave unsettled
-
+            // Net collected so far, and the slice not yet settled.
             var net = await db.Transactions.IgnoreQueryFilters()
                 .Where(t => t.VirtualAccountId == account.Id)
                 .SumAsync(t => (long?)t.NetCreditKobo, ct) ?? 0;
-            if (net <= 0 || net < config.MinPayoutKobo)
-                continue; // below payout threshold — wait
+            var unsettled = account.UnsettledKobo(net);
+            if (unsettled <= 0)
+                continue;
 
-            // Split settlement (Feature 1): account-specific legs override tenant-wide legs.
-            var splits = await db.SettlementSplits.IgnoreQueryFilters()
-                .Where(s => s.TenantId == account.TenantId && s.Enabled
-                    && (s.VirtualAccountId == null || s.VirtualAccountId == account.Id))
-                .ToListAsync(ct);
-            var effective = splits.Where(s => s.VirtualAccountId == account.Id).ToList();
-            if (effective.Count == 0)
-                effective = splits.Where(s => s.VirtualAccountId == null).ToList();
+            var config = await db.SettlementConfigs.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(s => s.TenantId == account.TenantId, ct);
 
-            if (effective.Count == 0)
-                await SettleSingleAsync(db, nomba, account, config, net, now, ct);
+            if (account.SubMerchantId is Guid subId)
+                await SettleToSubMerchantAsync(db, nomba, account, subId, config, net, unsettled, now, ct);
             else
-                await SettleSplitAsync(db, nomba, account, effective, net, now, ct);
+                await SettleToTenantAsync(db, nomba, account, config, net, unsettled, now, ct);
         }
     }
 
-    /// <summary>Original behaviour: one sweep of the whole net to the tenant's settlement account.</summary>
-    private async Task SettleSingleAsync(IApplicationDbContext db, INombaClient nomba, VirtualAccount account, SettlementConfig config, long net, DateTimeOffset now, CancellationToken ct)
+    /// <summary>Tenant-owned account: sweep to the tenant's settlement account or split plan.</summary>
+    private async Task SettleToTenantAsync(
+        IApplicationDbContext db, INombaClient nomba, VirtualAccount account, SettlementConfig? config,
+        long net, long unsettled, DateTimeOffset now, CancellationToken ct)
     {
-        var merchantRef = $"settle-{account.Id:N}";
+        if (config is null || !config.CanAutoSettle)
+            return; // not opted in / not configured — leave unsettled
+        if (unsettled < config.MinPayoutKobo)
+            return; // below payout threshold — wait
+
+        // Split settlement (Feature 1): account-specific legs override tenant-wide legs.
+        var splits = await db.SettlementSplits.IgnoreQueryFilters()
+            .Where(s => s.TenantId == account.TenantId && s.Enabled
+                && (s.VirtualAccountId == null || s.VirtualAccountId == account.Id))
+            .ToListAsync(ct);
+        var effective = splits.Where(s => s.VirtualAccountId == account.Id).ToList();
+        if (effective.Count == 0)
+            effective = splits.Where(s => s.VirtualAccountId == null).ToList();
+
+        if (effective.Count == 0)
+            await SettleSingleAsync(db, nomba, account, config.SettlementAccountNumber!, config.SettlementBankCode!,
+                config.SettlementAccountName, unsettled, net, "settlement", now, ct);
+        else
+            await SettleLegsAsync(db, nomba, account, effective, unsettled, net, now, ct);
+    }
+
+    /// <summary>Sub-merchant-owned account: sweep to the sub-merchant's payout account, skimming the
+    /// operator's platform fee first when configured.</summary>
+    private async Task SettleToSubMerchantAsync(
+        IApplicationDbContext db, INombaClient nomba, VirtualAccount account, Guid subMerchantId, SettlementConfig? config,
+        long net, long unsettled, DateTimeOffset now, CancellationToken ct)
+    {
+        var sub = await db.SubMerchants.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.Id == subMerchantId, ct);
+        if (sub is null || !sub.HasPayoutAccount)
+        {
+            logger.LogWarning("Account {AccountRef} routed to sub-merchant {SubId} but it has no payout account — leaving unsettled.",
+                account.Reference, subMerchantId);
+            return;
+        }
+
+        var minPayout = config?.MinPayoutKobo ?? 0;
+        if (unsettled < minPayout)
+            return;
+
+        var operatorHasAccount = config is not null
+            && !string.IsNullOrWhiteSpace(config.SettlementAccountNumber)
+            && !string.IsNullOrWhiteSpace(config.SettlementBankCode);
+
+        if (sub.PlatformFeeBps > 0 && operatorHasAccount)
+        {
+            // Two legs: the sub-merchant takes the remainder (priority 0, absorbs rounding dust), the
+            // operator takes the fee (priority 1). Reuse the tested exact-sum allocator.
+            var subLeg = new SettlementSplit(account.TenantId, account.Id,
+                sub.SettlementAccountName ?? sub.Name, sub.SettlementAccountNumber!, sub.SettlementBankCode!,
+                SplitBasis.Percentage, 10000 - sub.PlatformFeeBps, 0, priority: 0);
+            var feeLeg = new SettlementSplit(account.TenantId, account.Id,
+                config!.SettlementAccountName ?? "Platform fee", config.SettlementAccountNumber!, config.SettlementBankCode!,
+                SplitBasis.Percentage, sub.PlatformFeeBps, 0, priority: 1);
+            await SettleLegsAsync(db, nomba, account, new List<SettlementSplit> { subLeg, feeLeg }, unsettled, net, now, ct);
+        }
+        else
+        {
+            if (sub.PlatformFeeBps > 0 && !operatorHasAccount)
+                logger.LogWarning("Platform fee for sub-merchant {SubRef} waived — operator has no settlement account configured.", sub.Reference);
+            await SettleSingleAsync(db, nomba, account, sub.SettlementAccountNumber!, sub.SettlementBankCode!,
+                sub.SettlementAccountName, unsettled, net, $"payout to {sub.Reference}", now, ct);
+        }
+    }
+
+    /// <summary>One transfer of <paramref name="amountKobo"/> to a single destination. Idempotent on
+    /// <c>settle-{id}-{batchKey}</c>; advances the account's water-mark to <paramref name="batchKey"/> on success.</summary>
+    private async Task SettleSingleAsync(
+        IApplicationDbContext db, INombaClient nomba, VirtualAccount account,
+        string destAccountNumber, string destBankCode, string? destAccountName,
+        long amountKobo, long batchKey, string label, DateTimeOffset now, CancellationToken ct)
+    {
+        var merchantRef = $"settle-{account.Id:N}-{batchKey}";
         var existing = await db.Transfers.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.MerchantTxRef == merchantRef, ct);
         if (existing is not null)
         {
-            if (existing.Status == TransferStatus.Success) { account.MarkSettled(now); await db.SaveChangesAsync(ct); }
+            if (existing.Status == TransferStatus.Success) { account.MarkSettledUpTo(batchKey, now); await db.SaveChangesAsync(ct); }
             return; // failed ones await manual retry; don't re-initiate
         }
 
-        var transfer = new Transfer(account.TenantId, merchantRef, Money.FromKobo(net),
-            config.SettlementAccountNumber!, config.SettlementBankCode!, config.SettlementAccountName,
-            $"Xental settlement for {account.Reference}");
+        var transfer = new Transfer(account.TenantId, merchantRef, Money.FromKobo(amountKobo),
+            destAccountNumber, destBankCode, destAccountName, $"Xental {label} for {account.Reference}");
         db.Transfers.Add(transfer);
         await db.SaveChangesAsync(ct); // reserve the ref before calling the provider
 
-        var result = await nomba.InitiateTransferAsync(merchantRef, net, config.SettlementAccountNumber!, config.SettlementBankCode!, transfer.Narration, ct);
+        var result = await nomba.InitiateTransferAsync(merchantRef, amountKobo, destAccountNumber, destBankCode, transfer.Narration, ct);
         if (result.Success)
         {
             transfer.MarkSucceeded(result.ProviderReference ?? merchantRef, now);
-            account.MarkSettled(now);
-            logger.LogInformation("Auto-settled {AccountRef}: {NetKobo} kobo -> {Account}", account.Reference, net, config.SettlementAccountNumber);
+            account.MarkSettledUpTo(batchKey, now);
+            logger.LogInformation("Settled {AccountRef}: {Kobo} kobo -> {Account} ({Label})", account.Reference, amountKobo, destAccountNumber, label);
         }
         else
         {
             transfer.MarkFailed(result.FailureReason ?? "settlement failed", now);
-            logger.LogWarning("Auto-settlement failed for {AccountRef}: {Reason}", account.Reference, result.FailureReason);
+            logger.LogWarning("Settlement failed for {AccountRef}: {Reason}", account.Reference, result.FailureReason);
         }
         await db.SaveChangesAsync(ct);
     }
 
     /// <summary>
-    /// Fan the net out across the split legs as N idempotent transfers (<c>settle-{id}-{i}</c>). The
-    /// allocator guarantees the legs sum to exactly net (all-or-nothing); a misconfiguration that
-    /// exceeds net aborts the whole settlement without moving any money. The account is marked
-    /// settled only once every leg has succeeded.
+    /// Fan <paramref name="amountKobo"/> out across the legs as N idempotent transfers
+    /// (<c>settle-{id}-{batchKey}-{i}</c>). The allocator guarantees the legs sum to exactly the amount;
+    /// a misconfiguration that exceeds it aborts without moving money. The water-mark advances only once
+    /// every leg has succeeded.
     /// </summary>
-    private async Task SettleSplitAsync(IApplicationDbContext db, INombaClient nomba, VirtualAccount account, List<SettlementSplit> splits, long net, DateTimeOffset now, CancellationToken ct)
+    private async Task SettleLegsAsync(
+        IApplicationDbContext db, INombaClient nomba, VirtualAccount account, List<SettlementSplit> splits,
+        long amountKobo, long batchKey, DateTimeOffset now, CancellationToken ct)
     {
         IReadOnlyList<SplitCalculator.Leg> legs;
-        try { legs = SplitCalculator.Allocate(net, splits); }
+        try { legs = SplitCalculator.Allocate(amountKobo, splits); }
         catch (DomainException ex)
         {
             logger.LogWarning("Split settlement for {AccountRef} skipped — {Reason}", account.Reference, ex.Message);
@@ -141,7 +213,7 @@ public sealed class SettlementWorker(
             if (leg.AmountKobo <= 0)
                 continue;
 
-            var merchantRef = $"settle-{account.Id:N}-{i}";
+            var merchantRef = $"settle-{account.Id:N}-{batchKey}-{i}";
             var existing = await db.Transfers.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.MerchantTxRef == merchantRef, ct);
             if (existing is not null)
             {
@@ -173,7 +245,7 @@ public sealed class SettlementWorker(
 
         if (allSucceeded)
         {
-            account.MarkSettled(now);
+            account.MarkSettledUpTo(batchKey, now);
             await db.SaveChangesAsync(ct);
         }
     }

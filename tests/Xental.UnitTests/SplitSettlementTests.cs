@@ -117,7 +117,7 @@ public class SplitWorkerTests
         var transfers = await check.Transfers.IgnoreQueryFilters().OrderBy(t => t.MerchantTxRef).ToListAsync();
         transfers.Should().HaveCount(2);
         transfers.Sum(t => t.AmountKobo).Should().Be(1_000_00, "legs sum to exactly net");
-        transfers.Select(t => t.MerchantTxRef).Should().BeEquivalentTo(new[] { $"settle-{accountId:N}-0", $"settle-{accountId:N}-1" });
+        transfers.Select(t => t.MerchantTxRef).Should().BeEquivalentTo(new[] { $"settle-{accountId:N}-{1_000_00}-0", $"settle-{accountId:N}-{1_000_00}-1" });
         (await check.VirtualAccounts.IgnoreQueryFilters().FirstAsync(v => v.Id == accountId)).IsSettled.Should().BeTrue();
     }
 

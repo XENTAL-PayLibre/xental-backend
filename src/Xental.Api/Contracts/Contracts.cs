@@ -77,12 +77,34 @@ public sealed record CreateSubMerchantRequest(
     [Required, StringLength(200, MinimumLength = 2)] string Name,
     [Required, StringLength(100, MinimumLength = 1)] string Reference);
 
+/// <summary>Set a sub-merchant's payout account + the operator's platform fee (basis points, 1% = 100).
+/// The account name is resolved from the bank, not supplied.</summary>
+public sealed record SetSubMerchantPayoutRequest(
+    [Required, StringLength(200)] string BankName,
+    [Required, StringLength(16)] string BankCode,
+    [Required, StringLength(20)] string AccountNumber,
+    [Range(0, 10000)] int PlatformFeeBps);
+
 public sealed record SubMerchantResponse(
     Guid Id,
     string Name,
     string Reference,
     string Status,
+    bool HasPayoutAccount,
+    string? SettlementBankName,
+    string? SettlementBankCode,
+    string? SettlementAccountNumber,
+    string? SettlementAccountName,
+    int PlatformFeeBps,
     DateTimeOffset CreatedAtUtc);
+
+public sealed record SubMerchantBalanceResponse(
+    Guid SubMerchantId,
+    string Reference,
+    long CollectedKobo,
+    long SettledKobo,
+    long PendingKobo,
+    int VirtualAccounts);
 
 // ---- Virtual accounts (Phase 2) ----
 public sealed record CreateVirtualAccountRequest(
@@ -91,7 +113,8 @@ public sealed record CreateVirtualAccountRequest(
     [EmailAddress] string? Email,
     string? Phone,
     [Range(0, long.MaxValue)] long? ExpectedAmountKobo,
-    DateTimeOffset? ExpiryDateUtc);
+    DateTimeOffset? ExpiryDateUtc,
+    [StringLength(100)] string? SubMerchantRef);
 
 public sealed record VirtualAccountResponse(
     Guid Id,
@@ -105,6 +128,7 @@ public sealed record VirtualAccountResponse(
     long OverpaymentKobo,
     string Status,
     string PaymentState,
+    Guid? SubMerchantId,
     DateTimeOffset? ExpiryDateUtc,
     DateTimeOffset CreatedAtUtc);
 

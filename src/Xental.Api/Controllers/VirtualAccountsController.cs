@@ -27,7 +27,7 @@ public sealed class VirtualAccountsController(VirtualAccountService accounts) : 
     {
         var va = await accounts.CreateAsync(
             request.AccountRef, request.Name, request.Email, request.Phone,
-            request.ExpectedAmountKobo, request.ExpiryDateUtc, ct);
+            request.ExpectedAmountKobo, request.ExpiryDateUtc, request.SubMerchantRef, ct);
         return Created($"/api/v1/virtual-accounts/{va.Reference}", ToResponse(va));
     }
 
@@ -45,5 +45,5 @@ public sealed class VirtualAccountsController(VirtualAccountService accounts) : 
     private static VirtualAccountResponse ToResponse(VirtualAccount v) => new(
         v.Id, v.Reference, v.AccountNumber, v.BankName, v.AccountName,
         v.ExpectedAmountKobo, v.AmountPaidKobo, v.Deficit.Kobo, v.OverpaymentCredit.Kobo,
-        v.Status.ToString(), v.PaymentState.ToString(), v.ExpiryDateUtc, v.CreatedAtUtc);
+        v.Status.ToString(), v.PaymentState.ToString(), v.SubMerchantId, v.ExpiryDateUtc, v.CreatedAtUtc);
 }
