@@ -14,13 +14,22 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/virtual-accounts")]
-[Authorize(Policy = AuthPolicies.Api)]
+[Authorize(Policy = AuthPolicies.ApiOrDashboard)] // reads usable from the dashboard; provisioning stays API-only
 public sealed class VirtualAccountsController(VirtualAccountService accounts) : ControllerBase
 {
-    /// <summary>Provision a persistent NUBAN for a customer.</summary>
+    /// <summary>List the tenant's virtual accounts (optionally scoped to a sub-merchant).</summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(IEnumerable<VirtualAccountResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IEnumerable<VirtualAccountResponse>>> List(
+        [FromQuery] string? subMerchantRef, [FromQuery] int take = 50, CancellationToken ct = default) =>
+        Ok((await accounts.ListAsync(subMerchantRef, take, ct)).Select(ToResponse));
+
+    /// <summary>Provision a persistent NUBAN for a customer. Provisioning stays API-key only (key mode
+    /// decides test/live).</summary>
     /// <response code="201">Provisioned; body carries the NUBAN + reconciliation state.</response>
     /// <response code="409">A virtual account already exists for this accountRef.</response>
     [HttpPost]
+    [Authorize(Policy = AuthPolicies.Api)]
     [ProducesResponseType(typeof(VirtualAccountResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<VirtualAccountResponse>> Create(CreateVirtualAccountRequest request, CancellationToken ct)

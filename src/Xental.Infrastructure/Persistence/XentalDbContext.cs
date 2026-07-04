@@ -40,6 +40,8 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     public DbSet<EscrowHold> EscrowHolds => Set<EscrowHold>();
     public DbSet<MoneyRule> MoneyRules => Set<MoneyRule>();
     public DbSet<CheckoutSession> CheckoutSessions => Set<CheckoutSession>();
+    public DbSet<Xental.Domain.Billing.BillingSchedule> BillingSchedules => Set<Xental.Domain.Billing.BillingSchedule>();
+    public DbSet<Xental.Domain.Billing.BillingPeriod> BillingPeriods => Set<Xental.Domain.Billing.BillingPeriod>();
     public DbSet<WebhookEndpoint> WebhookEndpoints => Set<WebhookEndpoint>();
     public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
     public DbSet<Xental.Domain.Onboarding.OnboardingApplication> OnboardingApplications => Set<Xental.Domain.Onboarding.OnboardingApplication>();
@@ -74,6 +76,8 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
         modelBuilder.Entity<EscrowHold>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<MoneyRule>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<CheckoutSession>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Xental.Domain.Billing.BillingSchedule>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Xental.Domain.Billing.BillingPeriod>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<WebhookEndpoint>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<WebhookDelivery>().HasQueryFilter(e => e.TenantId == CurrentTenantId);
         modelBuilder.Entity<Xental.Domain.Onboarding.OnboardingApplication>().HasQueryFilter(e => e.TenantId == CurrentTenantId);

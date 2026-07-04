@@ -93,6 +93,10 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(AuthPolicies.Api, policy => policy
         .RequireAuthenticatedUser()
         .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Api));
+    // Either plane: an API key OR a dashboard session may read/manage these resources.
+    options.AddPolicy(AuthPolicies.ApiOrDashboard, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Api, AuthPolicies.Dashboard));
     // Admin plane: any admin, and the SuperAdmin-only subset (manage admins).
     options.AddPolicy(AuthPolicies.Admin, policy => policy
         .RequireAuthenticatedUser()

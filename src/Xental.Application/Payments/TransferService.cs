@@ -77,4 +77,14 @@ public sealed class TransferService(
         return await db.Transfers.AsNoTracking().FirstOrDefaultAsync(t => t.MerchantTxRef == reference, ct)
             ?? throw new NotFoundException($"No transfer with ref '{reference}'.");
     }
+
+    /// <summary>The tenant's payouts, most recent first (dashboard/API list).</summary>
+    public async Task<IReadOnlyList<Transfer>> ListAsync(int take = 50, CancellationToken ct = default)
+    {
+        tenantContext.RequireTenantId();
+        return await db.Transfers.AsNoTracking()
+            .OrderByDescending(t => t.CreatedAtUtc)
+            .Take(Math.Clamp(take, 1, 200))
+            .ToListAsync(ct);
+    }
 }

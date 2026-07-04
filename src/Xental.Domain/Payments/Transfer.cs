@@ -22,6 +22,8 @@ public sealed class Transfer : BaseEntity, ITenantOwned
     public string? ProviderReference { get; private set; }
     public string? FailureReason { get; private set; }
     public DateTimeOffset? CompletedAtUtc { get; private set; }
+    /// <summary>How many times a failed settlement has been re-initiated. Bounds auto-retry.</summary>
+    public int RetryCount { get; private set; }
 
     private Transfer() { } // EF
 
@@ -55,5 +57,14 @@ public sealed class Transfer : BaseEntity, ITenantOwned
         Status = TransferStatus.Failed;
         FailureReason = reason.Length > 500 ? reason[..500] : reason;
         CompletedAtUtc = at;
+    }
+
+    /// <summary>Re-arm a failed transfer for another attempt: back to Pending, retry counter bumped.
+    /// The idempotency ref is unchanged, so the provider still dedupes a genuinely-sent transfer.</summary>
+    public void BeginRetry()
+    {
+        Status = TransferStatus.Pending;
+        RetryCount++;
+        FailureReason = null;
     }
 }

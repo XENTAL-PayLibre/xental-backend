@@ -10,6 +10,9 @@ public static class AuthPolicies
     public const string Dashboard = "dashboard";
     public const string Api = "api";
 
+    /// <summary>Either plane — read/manage endpoints usable by both an API key and a dashboard user.</summary>
+    public const string ApiOrDashboard = "api-or-dashboard";
+
     /// <summary>Admin plane. <see cref="Admin"/> = any admin; <see cref="SuperAdmin"/> requires role SuperAdmin.</summary>
     public const string Admin = "admin";
     public const string SuperAdmin = "super-admin";

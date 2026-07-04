@@ -21,6 +21,7 @@ public sealed class TransferConfiguration : IEntityTypeConfiguration<Transfer>
         b.Property(x => x.Narration).HasMaxLength(200);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
         b.Property(x => x.ProviderReference).HasMaxLength(128);
+        b.Property(x => x.RetryCount).IsRequired();
         b.Property(x => x.CreatedAtUtc).IsRequired();
         b.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Cascade);
     }

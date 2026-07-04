@@ -48,6 +48,28 @@ public sealed class ResendEmailSender(
     public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
         SendAsync(toEmail, subject, html, ct);
 
+    public Task SendBillingReminderAsync(
+        string toEmail, string brand, long amountKobo, DateTimeOffset dueDateUtc,
+        string accountNumber, string bankName, bool overdue, CancellationToken ct = default)
+    {
+        var amount = "₦" + (amountKobo / 100m).ToString("N2");
+        var due = dueDateUtc.ToString("dd MMM yyyy");
+        var subject = overdue
+            ? $"Payment overdue — {brand}"
+            : $"Payment due — {brand}";
+        var lead = overdue
+            ? $"<p>Your payment to <strong>{brand}</strong> is now overdue.</p>"
+            : $"<p>You have a payment due to <strong>{brand}</strong>.</p>";
+        return SendAsync(toEmail, subject,
+            $"""
+             {lead}
+             <p>Amount: <strong>{amount}</strong><br/>Due by: <strong>{due}</strong></p>
+             <p>Pay by transferring to your dedicated account:</p>
+             <p>Account number: <strong>{accountNumber}</strong><br/>Bank: <strong>{bankName}</strong></p>
+             <p>Your payment is applied automatically once it arrives.</p>
+             """, ct);
+    }
+
     private async Task SendAsync(string toEmail, string subject, string html, CancellationToken ct)
     {
         if (!_options.IsConfigured)

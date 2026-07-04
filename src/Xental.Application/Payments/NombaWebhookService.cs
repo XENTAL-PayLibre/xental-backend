@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Xental.Application.Billing;
 using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
 using Xental.Application.Webhooks;
@@ -30,6 +31,7 @@ public sealed class NombaWebhookService(
     OutboundEventPublisher outbound,
     IReconciliationNotifier notifier,
     RuleEngine rules,
+    BillingService billing,
     IClock clock)
 {
     public async Task<WebhookResult> ProcessAsync(byte[] rawBody, string? signatureHeader, string? timestampHeader, CancellationToken ct = default)
@@ -126,6 +128,11 @@ public sealed class NombaWebhookService(
         // rule failure cannot corrupt the reconciliation that already succeeded.
         try { await rules.EvaluateAsync(account, txn, ct); }
         catch { /* rules are advisory — never fail the webhook over them */ }
+
+        // Recurring billing (push model): attribute this credit to the account's schedule periods.
+        // Post-commit + isolated + idempotent (water-mark) — never fails the webhook over billing.
+        try { await billing.AttributeDepositAsync(account.Id, ct); }
+        catch { /* billing attribution is advisory to the money path */ }
 
         return new WebhookResult(WebhookStatus.Processed, account.Reference, reconciliation, account.PaymentState, reason);
     }

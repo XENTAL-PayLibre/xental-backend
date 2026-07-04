@@ -104,6 +104,18 @@ public sealed class FakeEmailSender : IEmailSender
 
     public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
         Task.CompletedTask;
+
+    public int BillingReminders { get; private set; }
+    public bool LastReminderOverdue { get; private set; }
+
+    public Task SendBillingReminderAsync(
+        string toEmail, string brand, long amountKobo, DateTimeOffset dueDateUtc,
+        string accountNumber, string bankName, bool overdue, CancellationToken ct = default)
+    {
+        BillingReminders++;
+        LastReminderOverdue = overdue;
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>Returns the raw token verbatim as the "link" so tests can consume it directly.</summary>

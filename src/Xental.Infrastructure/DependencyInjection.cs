@@ -101,6 +101,9 @@ public static class DependencyInjection
         // Auto-settlement: sweep fully-paid accounts to the tenant's bank when they opt in.
         services.AddHostedService<Payments.SettlementWorker>();
 
+        // Recurring billing: open periods, send reminders, flag overdue (push model).
+        services.AddHostedService<Billing.BillingWorker>();
+
         // Live Checkout: in-process reconciliation pub/sub feeding the SSE streams.
         services.AddSingleton<IReconciliationNotifier, Payments.InMemoryReconciliationNotifier>();
 

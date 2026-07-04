@@ -14,7 +14,7 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/transactions")]
-[Authorize(Policy = AuthPolicies.Api)]
+[Authorize(Policy = AuthPolicies.ApiOrDashboard)] // read-only ledger — usable from the dashboard too
 [EnableRateLimiting("api-key")]
 public sealed class TransactionsController(TransactionQueryService transactions) : ControllerBase
 {

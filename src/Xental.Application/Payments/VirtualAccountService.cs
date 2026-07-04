@@ -86,4 +86,19 @@ public sealed class VirtualAccountService(
         return await db.VirtualAccounts.AsNoTracking().FirstOrDefaultAsync(v => v.Reference == reference, ct)
             ?? throw new NotFoundException($"No virtual account for accountRef '{reference}'.");
     }
+
+    /// <summary>The tenant's virtual accounts, most recent first (optionally scoped to a sub-merchant).</summary>
+    public async Task<IReadOnlyList<VirtualAccount>> ListAsync(string? subMerchantRef = null, int take = 50, CancellationToken ct = default)
+    {
+        tenantContext.RequireTenantId();
+        var q = db.VirtualAccounts.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(subMerchantRef))
+        {
+            var subRef = subMerchantRef.Trim();
+            var sub = await db.SubMerchants.AsNoTracking().FirstOrDefaultAsync(s => s.Reference == subRef, ct)
+                ?? throw new NotFoundException($"No sub-merchant with reference '{subRef}'.");
+            q = q.Where(v => v.SubMerchantId == sub.Id);
+        }
+        return await q.OrderByDescending(v => v.CreatedAtUtc).Take(Math.Clamp(take, 1, 200)).ToListAsync(ct);
+    }
 }

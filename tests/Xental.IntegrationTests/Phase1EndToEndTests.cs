@@ -219,8 +219,10 @@ public class Phase1EndToEndTests
         (await api.PostAsJsonAsync("/api/v1/api-keys", new { label = "x", mode = "test" }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
+        // The dashboard plane can now reach shared read/manage endpoints (sub-merchants, etc.), but
+        // key-mode-bound API-only actions like provisioning a NUBAN stay API-token only.
         var dash = await DashboardClientAsync(f, NewEmail());
-        (await dash.PostAsJsonAsync("/api/v1/sub-merchants", new { name = "X", reference = "r1" }))
+        (await dash.PostAsJsonAsync("/api/v1/virtual-accounts", new { accountRef = "r1", name = "X" }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Xental.Domain.Admin;
+using Xental.Domain.Billing;
 using Xental.Domain.Merchants;
 using Xental.Domain.Onboarding;
 using Xental.Domain.Payments;
@@ -28,6 +29,8 @@ public interface IApplicationDbContext
     DbSet<EscrowHold> EscrowHolds { get; }
     DbSet<MoneyRule> MoneyRules { get; }
     DbSet<CheckoutSession> CheckoutSessions { get; }
+    DbSet<BillingSchedule> BillingSchedules { get; }
+    DbSet<BillingPeriod> BillingPeriods { get; }
     DbSet<WebhookEndpoint> WebhookEndpoints { get; }
     DbSet<WebhookDelivery> WebhookDeliveries { get; }
     DbSet<OnboardingApplication> OnboardingApplications { get; }
