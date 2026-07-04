@@ -48,7 +48,13 @@ public sealed class NombaClient(
         using var response = await http.SendAsync(request, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
+        {
+            // A 4xx is a request-level rejection (bad input, duplicate, sandbox limit) — surface Nomba's
+            // reason to the caller as a validation error, not an opaque upstream (502) failure.
+            if ((int)response.StatusCode is >= 400 and < 500)
+                throw new ValidationException(ExtractMessage(body) ?? $"The account provider rejected the request ({(int)response.StatusCode}).");
             throw new NombaIntegrationException($"Nomba virtual-account creation failed ({(int)response.StatusCode}): {body}");
+        }
 
         try
         {
@@ -128,4 +134,15 @@ public sealed class NombaClient(
     private static string? Str(JsonElement el, string name) =>
         el.ValueKind == JsonValueKind.Object && el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString() : null;
+
+    /// <summary>Pull a human-readable reason out of a Nomba error body (<c>description</c> / <c>message</c>).</summary>
+    private static string? ExtractMessage(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return Str(doc.RootElement, "description") ?? Str(doc.RootElement, "message");
+        }
+        catch (JsonException) { return null; }
+    }
 }

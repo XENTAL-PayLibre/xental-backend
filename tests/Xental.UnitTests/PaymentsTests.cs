@@ -127,7 +127,7 @@ public class VirtualAccountServiceTests
 
         await using var ctx = db.CreateContext();
         var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("9011223344"));
-        var va = await svc.CreateAsync("stu-001", "Ada Payer", "ada@x.com", null, 500_00, null, null);
+        var va = await svc.CreateAsync("stu-001", "Ada Payer", "ada@x.com", null, 500_00, null, null, testMode: false);
 
         va.AccountNumber.Should().Be("9011223344");
         va.Reference.Should().Be("stu-001");
@@ -138,15 +138,30 @@ public class VirtualAccountServiceTests
     }
 
     [Fact]
+    public async Task Test_mode_provisions_a_simulated_sandbox_nuban_not_the_provider()
+    {
+        using var db = new TestDatabase();
+        db.Tenant.TenantId = await SeedTenantAsync(db);
+        await using var ctx = db.CreateContext();
+        var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("1234567890"));
+
+        var va = await svc.CreateAsync("test-1", "Sandbox Payer", null, null, null, null, null, testMode: true);
+
+        va.AccountNumber.Should().StartWith("99").And.HaveLength(10);
+        va.AccountNumber.Should().NotBe("1234567890", "test mode simulates instead of calling the provider");
+        va.BankName.Should().Be("Xental Sandbox Bank");
+    }
+
+    [Fact]
     public async Task Duplicate_accountRef_conflicts()
     {
         using var db = new TestDatabase();
         db.Tenant.TenantId = await SeedTenantAsync(db);
         await using (var ctx = db.CreateContext())
-            await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "A", null, null, null, null, null);
+            await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "A", null, null, null, null, null, testMode: false);
 
         await using var ctx2 = db.CreateContext();
-        var act = () => new VirtualAccountService(ctx2, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "B", null, null, null, null, null);
+        var act = () => new VirtualAccountService(ctx2, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "B", null, null, null, null, null, testMode: false);
         await act.Should().ThrowAsync<ConflictException>();
     }
 }

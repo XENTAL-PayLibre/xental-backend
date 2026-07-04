@@ -25,9 +25,11 @@ public sealed class VirtualAccountsController(VirtualAccountService accounts) : 
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<VirtualAccountResponse>> Create(CreateVirtualAccountRequest request, CancellationToken ct)
     {
+        // Anything that isn't an explicit live key provisions a simulated sandbox NUBAN.
+        var testMode = !string.Equals(User.FindFirst("key_mode")?.Value, "live", StringComparison.OrdinalIgnoreCase);
         var va = await accounts.CreateAsync(
             request.AccountRef, request.Name, request.Email, request.Phone,
-            request.ExpectedAmountKobo, request.ExpiryDateUtc, request.SubMerchantRef, ct);
+            request.ExpectedAmountKobo, request.ExpiryDateUtc, request.SubMerchantRef, testMode, ct);
         return Created($"/api/v1/virtual-accounts/{va.Reference}", ToResponse(va));
     }
 

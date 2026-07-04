@@ -126,6 +126,36 @@ public class SubMerchantSettlementTests
     }
 
     [Fact]
+    public async Task Simulated_sandbox_account_is_never_settled()
+    {
+        using var db = new TestDatabase();
+        Guid accountId;
+        await using (var ctx = db.CreateContext())
+        {
+            var t = new Tenant("Acme", $"a-{Guid.NewGuid():N}@x.com", "h"); ctx.Tenants.Add(t);
+            var cfg = new SettlementConfig(t.Id);
+            cfg.Update("0123456789", "011", "Acme Ltd", autoSettle: true, 0);
+            ctx.SettlementConfigs.Add(cfg);
+            var c = new Customer(t.Id, "ref-1", "Payer"); ctx.Customers.Add(c);
+            var va = new VirtualAccount(t.Id, c.Id, "ref-1", "9912345678", "Xental Sandbox Bank", "Payer",
+                providerAccountId: "sandbox-ref-1", expectedAmountKobo: 1_000_00);
+            va.ApplyInflow(Money.FromKobo(1_000_00));
+            ctx.VirtualAccounts.Add(va);
+            ctx.Transactions.Add(new Transaction(t.Id, va.Id, "x1", "Payer",
+                Money.FromKobo(1_000_00), Money.FromKobo(0), TransactionStatus.Success,
+                ReconciliationStatus.Reconciled, null, db.Clock.UtcNow, db.Clock.UtcNow));
+            await ctx.SaveChangesAsync();
+            accountId = va.Id;
+        }
+
+        await Worker(db, new FakeNombaClient { TransferSucceeds = true }).RunOnceAsync();
+
+        await using var check = db.CreateContext();
+        (await check.Transfers.IgnoreQueryFilters().CountAsync()).Should().Be(0, "simulated accounts never move real money");
+        (await check.VirtualAccounts.IgnoreQueryFilters().FirstAsync(v => v.Id == accountId)).IsSettled.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task SetPayout_verifies_the_account_and_stores_the_bank_name_and_fee()
     {
         using var db = new TestDatabase();
