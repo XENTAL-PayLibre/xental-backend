@@ -52,6 +52,16 @@ public sealed class TeamController(TeamService team) : ControllerBase
         return Ok(ToResponse(member));
     }
 
+    /// <summary>Re-send a pending member's invitation. Rotates the token, so older links stop working.</summary>
+    [HttpPost("{id:guid}/resend")]
+    [ProducesResponseType(typeof(TeamMemberResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TeamMemberResponse>> Resend(Guid id, CancellationToken ct)
+    {
+        var member = await team.ResendAsync(id, ct);
+        return Ok(ToResponse(member));
+    }
+
     [HttpDelete("{id:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

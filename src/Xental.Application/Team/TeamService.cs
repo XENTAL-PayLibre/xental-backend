@@ -77,6 +77,23 @@ public sealed class TeamService(
         return member;
     }
 
+    /// <summary>Re-send a pending invitation: rotate the token (invalidating the old link) and email a fresh one.</summary>
+    public async Task<TeamMember> ResendAsync(Guid id, CancellationToken ct = default)
+    {
+        var tenantId = tenantContext.RequireTenantId();
+        var member = await db.TeamMembers
+            .FirstOrDefaultAsync(m => m.Id == id && m.TenantId == tenantId && m.Status == TeamMemberStatus.Invited, ct)
+            ?? throw new NotFoundException($"No pending invitation for team member '{id}'.");
+
+        var raw = tokens.Generate("inv", 32);
+        member.ReInvite(tokenHasher.Hash(raw), clock.UtcNow.Add(links.TeamInviteTtl));
+        await db.SaveChangesAsync(ct);
+
+        var owner = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tenantId, ct);
+        await email.SendTeamInviteAsync(member.Email, links.TeamInviteLink(raw), owner?.Name ?? "your team", ct);
+        return member;
+    }
+
     public async Task RemoveAsync(Guid id, CancellationToken ct = default)
     {
         var tenantId = tenantContext.RequireTenantId();
