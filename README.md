@@ -1,7 +1,39 @@
 # Xental Backend
 
-ASP.NET Core (.NET 10) backend built on **Clean Architecture**. This is the
-foundation onto which feature modules are added one at a time.
+ASP.NET Core (.NET 10) backend built on **Clean Architecture**. Xental provides
+**reusable dedicated virtual accounts + automatic reconciliation** on top of Nomba:
+merchants provision NUBANs, Xental reconciles inflows against expected amounts,
+scores fraud risk, fans out signed webhooks, and auto-settles collected funds to
+the merchant's bank.
+
+## What's shipped
+
+Multi-tenant by design — row-level `TenantId` isolation enforced by EF global query
+filters **and** at write time. Money is integer **kobo** end to end.
+
+| Area | Capability |
+|------|-----------|
+| **Identity** | Developer email/password + Google/GitHub OAuth, email verification & password reset (Resend magic links), verify-before-login |
+| **Sessions** | HttpOnly+Secure cookie sessions, short-lived access + rotating single-use refresh tokens (SHA-256 hashed) |
+| **API auth** | Client-credentials → scoped API JWT; separate dashboard vs API planes; test/live API keys |
+| **Virtual accounts** | Provider-backed NUBANs with optional expected-amount, per-tenant `accountRef` |
+| **Reconciliation** | Signed Nomba inflow webhooks → Reconciled / Underpaid / Overpaid / PendingReview / Reversed (per the Rule Book), idempotent on provider reference |
+| **Fraud/risk** | Explainable 0–100 score (name mismatch, overpayment, velocity, payer-name reuse / mule pattern); ≥70 → review queue |
+| **Outbound webhooks** | Signed (HMAC-SHA256), retried with backoff, dead-lettered & replayable; AES-GCM-encrypted secrets; SSRF-guarded URLs |
+| **Transactions & payouts** | Filtered statements; idempotent bank transfers (keyed on `merchantTxRef`) |
+| **Settlement** | Per-tenant settlement account + auto-settle worker that sweeps fully-paid accounts (net of fees) to the merchant's bank |
+| **Insights** | Collection rate, outstanding deficit, reconciliation & risk breakdown |
+| **Live Checkout** | Opaque session token per account + anonymous **SSE** stream so a payer sees "Payment received ✓" the instant a deposit reconciles |
+| **Split & Escrow** | Fan a fully-paid account's net across beneficiary legs (percentage/flat, summing to exactly net) + escrow holds that park funds until released |
+| **Money Rules** | Declarative if-this-then-that on reconciled deposits (overpaid → hold, high-risk → hold, notify) — post-commit, never changes the verdict |
+| **Agent layer** | Test-mode **sandbox deposit simulator** (real reconciliation, zero money) + `/.well-known/llms.txt` so an AI agent can wire + verify an integration |
+| **KYC/onboarding** | Sandbox on signup; live access gated on admin-approved Developer KYC + Business KYB; MinIO/S3 document storage; SuperAdmin/Admin RBAC + TOTP MFA |
+| **Ops** | `/health` liveness + `/ready` DB readiness, security-headers middleware, throttled 5xx email alerts, OpenTelemetry, Serilog |
+
+Full API + concept reference: [documentation.md](documentation.md) (differentiators in §11).
+Frontend guides: [docs/DIFFERENTIATORS-FE-GUIDE.md](docs/DIFFERENTIATORS-FE-GUIDE.md),
+[docs/KYC-ADMIN-API-FE.md](docs/KYC-ADMIN-API-FE.md). Interactive docs at `/swagger`
+(includes a quickstart).
 
 ## Solution structure
 
@@ -29,8 +61,8 @@ New modules register their handlers/services inside these methods.
 dotnet run --project src/Xental.Api
 ```
 
-Swagger UI is served at the app root path, e.g. `https://localhost:7292/swagger`.
-Health endpoints: `GET /api/health` (controller) and `GET /health` (probe).
+Swagger UI is served at `/swagger`, e.g. `https://localhost:7292/swagger`.
+Health endpoints: `GET /health` (liveness) and `GET /ready` (DB readiness).
 
 ## Running with Docker
 

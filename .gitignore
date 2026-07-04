@@ -481,10 +481,13 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
-# Local environment files (keep .env.example tracked)
+# Local environment files (keep *.example tracked)
 .env
+.env.local
+.env.production
 .env.*.local
 *.env.local
 
 # Claude Code workspace
 .claude/
+docs/IMPLEMENTATION-PLAN.md

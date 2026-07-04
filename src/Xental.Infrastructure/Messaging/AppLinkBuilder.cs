@@ -1,0 +1,31 @@
+using Microsoft.Extensions.Options;
+using Xental.Application.Common.Interfaces;
+using Xental.Infrastructure.Configuration;
+using Xental.Infrastructure.Security;
+
+namespace Xental.Infrastructure.Messaging;
+
+/// <summary>Builds email links from the configured app base URL, and owns token TTLs.</summary>
+public sealed class AppLinkBuilder(IOptions<AppOptions> app, IOptions<AuthOptions> auth) : ILinkBuilder
+{
+    private readonly string _frontendUrl = app.Value.BaseUrl.TrimEnd('/');
+    private readonly string _apiUrl = app.Value.EffectiveApiBaseUrl.TrimEnd('/');
+    private readonly AuthOptions _auth = auth.Value;
+
+    // Clicking this hits the API, which verifies then redirects to the frontend.
+    public string EmailVerificationLink(string rawToken) =>
+        $"{_apiUrl}/api/v1/developers/verify-email?token={Uri.EscapeDataString(rawToken)}";
+
+    // Points at the frontend page that collects a new password and POSTs the reset.
+    public string PasswordResetLink(string rawToken) =>
+        $"{_frontendUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}";
+
+    // Points at the frontend page where an invitee sets a password and POSTs the accept.
+    public string TeamInviteLink(string rawToken) =>
+        $"{_frontendUrl}/accept-invite?token={Uri.EscapeDataString(rawToken)}";
+
+    public TimeSpan EmailVerificationTtl => TimeSpan.FromMinutes(_auth.EmailVerificationTtlMinutes);
+    public TimeSpan PasswordResetTtl => TimeSpan.FromMinutes(_auth.PasswordResetTtlMinutes);
+    public TimeSpan TeamInviteTtl => TimeSpan.FromDays(7);
+    public TimeSpan RefreshTokenLifetime => TimeSpan.FromDays(_auth.RefreshTokenDays);
+}
