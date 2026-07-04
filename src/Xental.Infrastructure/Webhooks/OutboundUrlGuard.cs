@@ -35,7 +35,10 @@ public sealed class OutboundUrlGuard : IOutboundUrlGuard
         return addresses.Length > 0 && addresses.All(IsPublic);
     }
 
-    private static bool IsPublic(IPAddress ip)
+    /// <summary>True if the address is a routable public address (not loopback/private/link-local/
+    /// CGNAT/ULA). Public so the outbound-webhook connect callback can re-validate the exact IP it is
+    /// about to connect to, closing the DNS-rebinding window.</summary>
+    public static bool IsPublic(IPAddress ip)
     {
         if (IPAddress.IsLoopback(ip) || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast)
             return false;

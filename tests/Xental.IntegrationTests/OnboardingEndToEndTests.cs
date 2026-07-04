@@ -34,8 +34,7 @@ public class OnboardingEndToEndTests
 
         var token = FakeEmailSender.VerificationTokenFor(email);
         await client.GetAsync($"/api/v1/developers/verify-email?token={token}");
-        var login = await client.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password });
-        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        await DashboardLogin.CompleteAsync(client, email, Password);
         return (client, tenantId);
     }
 

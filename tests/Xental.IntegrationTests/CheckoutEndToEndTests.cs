@@ -34,8 +34,7 @@ public class CheckoutEndToEndTests
             .StatusCode.Should().Be(HttpStatusCode.Created);
         var token = FakeEmailSender.VerificationTokenFor(email);
         await dash.GetAsync($"/api/v1/developers/verify-email?token={token}");
-        (await dash.PostAsJsonAsync("/api/v1/developers/login", new { email, password = Password }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        await DashboardLogin.CompleteAsync(dash, email, Password);
         var keyResp = await dash.PostAsJsonAsync("/api/v1/api-keys", new { label = "key", mode = "test" });
         var key = (await keyResp.Content.ReadFromJsonAsync<ApiKeyResponse>())!;
         var tokenResp = await dash.PostAsJsonAsync("/api/v1/auth/token", new { clientId = key.ClientId, clientSecret = key.ClientSecret });

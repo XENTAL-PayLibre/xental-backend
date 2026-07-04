@@ -88,6 +88,18 @@ public sealed class BillingPeriod : BaseEntity, ITenantOwned
         return take;
     }
 
+    /// <summary>Clear attribution so a reversal can redistribute the account's now-lower balance.
+    /// Returns true if the period was previously settled (Paid) and has now been re-opened, so the
+    /// caller can notify. Keeps the due/overdue notification flags (the payer was already reminded).</summary>
+    public bool ResetAttribution()
+    {
+        var wasPaid = Status == BillingPeriodStatus.Paid;
+        AmountAttributedKobo = 0;
+        PaidAtUtc = null;
+        Status = BillingPeriodStatus.Open;
+        return wasPaid;
+    }
+
     /// <summary>Mark this period overdue (past due date, still unpaid). No-op once paid.</summary>
     public bool MarkOverdue()
     {

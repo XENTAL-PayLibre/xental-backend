@@ -119,6 +119,22 @@ builder.Services.AddAuthorization(options =>
         .RequireAuthenticatedUser()
         .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Dashboard)
         .RequireClaim(AuthPolicies.RoleClaim, "Owner", "Admin"));
+
+    // Billing mutations: an API key (integrator, no team role) OR a dashboard Owner/Admin — never a
+    // dashboard Employee. Reads stay on the broader ApiOrDashboard policy.
+    options.AddPolicy(AuthPolicies.ManageBilling, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAssertion(ctx =>
+        {
+            var scope = ctx.User.FindFirst(AuthPolicies.ScopeClaim)?.Value;
+            if (scope == AuthPolicies.Api) return true;
+            if (scope == AuthPolicies.Dashboard)
+            {
+                var role = ctx.User.FindFirst(AuthPolicies.RoleClaim)?.Value;
+                return role is "Owner" or "Admin";
+            }
+            return false;
+        }));
 });
 
 // TLS is terminated at Traefik; trust its X-Forwarded-* so the real client IP/scheme
@@ -126,8 +142,20 @@ builder.Services.AddAuthorization(options =>
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.KnownNetworks.Clear();
+    // Trust X-Forwarded-* only from the reverse proxy — otherwise a forged X-Forwarded-For lets an
+    // attacker rotate the rate-limit key and defeat the (login) brute-force limiter. Only accept one
+    // forwarding hop, and only when the immediate peer sits on a trusted network (where Traefik runs).
+    // A direct external connection (bypassing the proxy) is not trusted, so its real IP is used.
+    options.ForwardLimit = 1;
     options.KnownProxies.Clear();
+    options.KnownIPNetworks.Clear();
+    var knownProxies = builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [];
+    foreach (var p in knownProxies)
+        if (System.Net.IPAddress.TryParse(p, out var ip)) options.KnownProxies.Add(ip);
+    var knownNetworks = builder.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>()
+        ?? ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128", "fc00::/7"];
+    foreach (var n in knownNetworks)
+        if (System.Net.IPNetwork.TryParse(n, out var network)) options.KnownIPNetworks.Add(network);
 });
 
 // Rate limiting: a per-IP global safety net plus a stricter "auth" policy on the
@@ -147,6 +175,9 @@ builder.Services.AddRateLimiter(options =>
 
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx => Window(ctx, 300));
     options.AddPolicy("auth", ctx => Window(ctx, 10));
+    // Inbound provider webhooks: unauthenticated but signature-verified. A generous per-IP ceiling that
+    // tolerates Nomba retry bursts while capping an unauthenticated CPU/parse DoS amplifier.
+    options.AddPolicy("webhook", ctx => Window(ctx, 1200));
 
     // API-plane throttle keyed by the API KEY (or tenant), not just IP: each credential gets its
     // own quota, and live keys get a higher ceiling than sandbox (test) keys.

@@ -51,15 +51,35 @@ public sealed class DevelopersController(
     /// <summary>Log in with email + password (verified accounts only). Sets session cookies.</summary>
     /// <response code="200">Authenticated; session cookies set.</response>
     /// <response code="401">Invalid email or password.</response>
+    /// <summary>Step 1 of login: verify the password and email a one-time code. No session yet —
+    /// call <c>login/verify</c> with the code to finish. Returns 202 on success.</summary>
+    /// <response code="202">Password OK; a login code was emailed. Verify it to get a session.</response>
+    /// <response code="401">Invalid email or password.</response>
     /// <response code="403">Email not verified.</response>
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     [HttpPost("login")]
-    [ProducesResponseType(typeof(SessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LoginChallengeResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<SessionResponse>> Login(LoginRequest request, CancellationToken ct)
+    public async Task<ActionResult<LoginChallengeResponse>> Login(LoginRequest request, CancellationToken ct)
     {
-        var session = await auth.LoginAsync(request.Email, request.Password, ct);
+        var challenge = await auth.BeginLoginAsync(request.Email, request.Password, ct);
+        return Accepted(new LoginChallengeResponse(challenge.Email, challenge.ExpiresAtUtc,
+            "A login code was sent to your email. Enter it to finish signing in."));
+    }
+
+    /// <summary>Step 2 of login: verify the emailed code and start the session (sets cookies).</summary>
+    /// <response code="200">Verified; session cookies set.</response>
+    /// <response code="401">Invalid or expired code.</response>
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]
+    [HttpPost("login/verify")]
+    [ProducesResponseType(typeof(SessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<SessionResponse>> VerifyLoginOtp(VerifyLoginOtpRequest request, CancellationToken ct)
+    {
+        var session = await auth.VerifyLoginOtpAsync(request.Email, request.Code, ct);
         cookies.SetSession(Response, session);
         return Ok(new SessionResponse(session.TenantId, session.Email, session.EmailVerified));
     }

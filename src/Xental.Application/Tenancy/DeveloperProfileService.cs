@@ -29,6 +29,11 @@ public sealed class DeveloperProfileService(IApplicationDbContext db)
     /// <summary>Set the public brand/product name shown to payers.</summary>
     public async Task<DeveloperProfile> SetBrandNameAsync(Guid tenantId, string? brandName, CancellationToken ct = default)
     {
+        // The brand is rendered to payers (checkout pages, transactional emails), so reject markup here
+        // for a clean 400 (the domain enforces the same invariant as defense in depth).
+        if (brandName is not null && brandName.IndexOfAny(['<', '>']) >= 0)
+            throw new ValidationException("Brand name cannot contain '<' or '>'.");
+
         var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct)
             ?? throw new NotFoundException("Account not found.");
         tenant.SetBrandName(brandName);

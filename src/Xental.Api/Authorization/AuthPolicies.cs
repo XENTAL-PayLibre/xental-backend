@@ -21,6 +21,8 @@ public static class AuthPolicies
     public const string TeamManage = "team-manage";          // Owner, Admin
     public const string ManageKeys = "manage-keys";          // Owner, Admin, Developer
     public const string ManageSettings = "manage-settings";  // Owner, Admin
+    /// <summary>Mutate billing schedules: an API key (integrator), or a dashboard Owner/Admin — not an Employee.</summary>
+    public const string ManageBilling = "manage-billing";
 
     public const string ScopeClaim = "scope";
     public const string AdminRoleClaim = "admin_role";

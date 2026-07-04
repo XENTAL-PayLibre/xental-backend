@@ -73,7 +73,14 @@ public sealed class NombaWebhookService(
                 gross, fee, TransactionStatus.Failed, ReconciliationStatus.Reversed,
                 TransactionFlag.Reversed, occurred, now));
             await db.SaveChangesAsync(ct);
-            if (account is not null) NotifyStatus(account, ReconciliationStatus.Reversed);
+            if (account is not null)
+            {
+                NotifyStatus(account, ReconciliationStatus.Reversed);
+                // Recurring billing: redistribute the now-lower balance, re-open uncovered periods, and
+                // alert if funds were already settled out. Post-commit + isolated (advisory to money path).
+                try { await billing.ReattributeAfterReversalAsync(account.Id, ct); }
+                catch { /* reversal re-attribution is advisory — never fail the webhook over it */ }
+            }
             return new WebhookResult(WebhookStatus.Reversed, inflow.Reference, ReconciliationStatus.Reversed, account?.PaymentState, TransactionFlag.Reversed);
         }
 
@@ -118,7 +125,25 @@ public sealed class NombaWebhookService(
         // Enqueue enriched outbound events (delivered async by the worker), in the same tx.
         await outbound.PublishDepositAsync(account, txn, ct);
 
-        await db.SaveChangesAsync(ct);
+        // Commit with optimistic-concurrency retry: if a concurrent webhook for the SAME account
+        // changed AmountPaidKobo underneath us (xmin conflict), reload the fresh balance and re-apply
+        // this inflow onto it, so no deposit is lost. The Transaction insert (unique on NombaReference)
+        // and the outbound deliveries ride along and commit once the balance write lands.
+        for (var attempt = 0; ; attempt++)
+        {
+            try { await db.SaveChangesAsync(ct); break; }
+            catch (DbUpdateConcurrencyException ex) when (attempt < 5)
+            {
+                foreach (var entry in ex.Entries)
+                {
+                    if (entry.Entity is VirtualAccount conflicted)
+                    {
+                        await entry.ReloadAsync(ct);           // pull the concurrent deposit's total
+                        conflicted.ApplyInflow(gross);          // re-add our inflow onto the fresh base
+                    }
+                }
+            }
+        }
 
         // Live Checkout: push the new status to any open subscribers. Best-effort, post-commit,
         // and fully isolated — a notifier failure can never affect the reconciliation outcome.

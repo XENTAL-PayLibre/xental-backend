@@ -24,4 +24,9 @@ public sealed class NombaOptions
 
     /// <summary>Header carrying the webhook signature.</summary>
     public string WebhookSignatureHeader { get; set; } = "nomba-signature";
+
+    /// <summary>Reject webhooks whose <c>nomba-timestamp</c> is older than this many minutes (replay
+    /// bound). Deliberately generous so delayed provider retries still pass; 0 disables the check.
+    /// Unparseable timestamps are never rejected on this basis.</summary>
+    public int WebhookMaxAgeMinutes { get; set; } = 1440;
 }

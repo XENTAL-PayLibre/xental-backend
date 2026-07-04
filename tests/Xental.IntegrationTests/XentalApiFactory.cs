@@ -17,12 +17,21 @@ internal sealed class FakeEmailSender : IEmailSender
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Verify = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Reset = new();
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Invite = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Otp = new();
 
     public Task SendEmailVerificationAsync(string toEmail, string verifyLink, CancellationToken ct = default)
     {
         Verify[toEmail] = verifyLink;
         return Task.CompletedTask;
     }
+
+    public Task SendLoginOtpAsync(string toEmail, string code, CancellationToken ct = default)
+    {
+        Otp[toEmail] = code;
+        return Task.CompletedTask;
+    }
+
+    public static string? OtpFor(string email) => Otp.TryGetValue(email, out var code) ? code : null;
 
     public Task SendPasswordResetAsync(string toEmail, string resetLink, CancellationToken ct = default)
     {

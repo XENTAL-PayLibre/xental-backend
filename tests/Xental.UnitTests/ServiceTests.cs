@@ -67,8 +67,17 @@ public class DeveloperRegistrationServiceTests
 
 public class DeveloperAuthServiceTests
 {
-    private static DeveloperAuthService Auth(TestDatabase db, XentalDbContext ctx) =>
-        new(ctx, TestSecurity.PasswordHasher(), new Sha256TokenHasher(), TestSecurity.Sessions(ctx, db.Clock), db.Clock);
+    private static DeveloperAuthService Auth(TestDatabase db, XentalDbContext ctx, FakeEmailSender? email = null) =>
+        new(ctx, TestSecurity.PasswordHasher(), new Sha256TokenHasher(), email ?? new FakeEmailSender(), TestSecurity.Sessions(ctx, db.Clock), db.Clock);
+
+    /// <summary>Complete both login steps (password → emailed OTP) and return the issued session.</summary>
+    private static async Task<IssuedSession> LoginAsync(TestDatabase db, XentalDbContext ctx, string email, string password)
+    {
+        var sender = new FakeEmailSender();
+        var auth = Auth(db, ctx, sender);
+        await auth.BeginLoginAsync(email, password);
+        return await auth.VerifyLoginOtpAsync(email, sender.LastOtpCode!);
+    }
 
     private static async Task RegisterAsync(TestDatabase db, string email, bool verified)
     {
@@ -90,7 +99,7 @@ public class DeveloperAuthServiceTests
         await RegisterAsync(db, "dev@example.com", verified: true);
 
         await using var ctx = db.CreateContext();
-        var session = await Auth(db, ctx).LoginAsync("Dev@example.com", TestSecurity.StrongPassword);
+        var session = await LoginAsync(db, ctx, "Dev@example.com", TestSecurity.StrongPassword);
 
         session.Email.Should().Be("dev@example.com");
         session.Access.Token.Should().NotBeNullOrWhiteSpace();
@@ -104,7 +113,7 @@ public class DeveloperAuthServiceTests
         await RegisterAsync(db, "dev@example.com", verified: false);
 
         await using var ctx = db.CreateContext();
-        var act = () => Auth(db, ctx).LoginAsync("dev@example.com", TestSecurity.StrongPassword);
+        var act = () => Auth(db, ctx).BeginLoginAsync("dev@example.com", TestSecurity.StrongPassword);
         await act.Should().ThrowAsync<EmailNotVerifiedException>();
     }
 
@@ -115,7 +124,7 @@ public class DeveloperAuthServiceTests
         await RegisterAsync(db, "dev@example.com", verified: true);
 
         await using var ctx = db.CreateContext();
-        var act = () => Auth(db, ctx).LoginAsync("dev@example.com", "Wr0ng-Passw0rd!");
+        var act = () => Auth(db, ctx).BeginLoginAsync("dev@example.com", "Wr0ng-Passw0rd!");
         await act.Should().ThrowAsync<AuthenticationException>();
     }
 
@@ -124,7 +133,7 @@ public class DeveloperAuthServiceTests
     {
         using var db = new TestDatabase();
         await using var ctx = db.CreateContext();
-        var act = () => Auth(db, ctx).LoginAsync("nobody@example.com", TestSecurity.StrongPassword);
+        var act = () => Auth(db, ctx).BeginLoginAsync("nobody@example.com", TestSecurity.StrongPassword);
         await act.Should().ThrowAsync<AuthenticationException>();
     }
 
@@ -136,7 +145,7 @@ public class DeveloperAuthServiceTests
 
         string refresh1;
         await using (var ctx = db.CreateContext())
-            refresh1 = (await Auth(db, ctx).LoginAsync("dev@example.com", TestSecurity.StrongPassword)).RefreshToken;
+            refresh1 = (await LoginAsync(db, ctx, "dev@example.com", TestSecurity.StrongPassword)).RefreshToken;
 
         string refresh2;
         await using (var ctx = db.CreateContext())
@@ -156,7 +165,7 @@ public class DeveloperAuthServiceTests
 
         string refresh;
         await using (var ctx = db.CreateContext())
-            refresh = (await Auth(db, ctx).LoginAsync("dev@example.com", TestSecurity.StrongPassword)).RefreshToken;
+            refresh = (await LoginAsync(db, ctx, "dev@example.com", TestSecurity.StrongPassword)).RefreshToken;
         await using (var ctx = db.CreateContext())
             await Auth(db, ctx).LogoutAsync(refresh);
 

@@ -113,7 +113,7 @@ public class SettlementWorkerTests
         var transfer = await check.Transfers.IgnoreQueryFilters().SingleAsync();
         transfer.Status.Should().Be(TransferStatus.Success);
         transfer.AmountKobo.Should().Be(950_00, "net = gross 1000 less 50 fee");
-        transfer.MerchantTxRef.Should().Be($"settle-{accountId:N}-{950_00}"); // ref carries the settled net (batch key)
+        transfer.MerchantTxRef.Should().Be($"settle-{accountId:N}-0"); // ref carries the round key = from-water-mark (0 for the first round)
     }
 
     [Fact]

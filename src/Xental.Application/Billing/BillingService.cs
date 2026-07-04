@@ -18,7 +18,8 @@ public sealed record BillingScheduleView(BillingSchedule Schedule, string Accoun
 /// billing worker. No funds are ever pulled — the customer pushes; Xental attributes and reminds.
 /// </summary>
 public sealed class BillingService(
-    IApplicationDbContext db, ITenantContext tenantContext, OutboundEventPublisher outbound, IEmailSender email, IClock clock)
+    IApplicationDbContext db, ITenantContext tenantContext, OutboundEventPublisher outbound, IEmailSender email,
+    IErrorAlerter alerter, IClock clock)
 {
     /// <summary>Create a schedule on one of the tenant's reusable virtual accounts and open its first period.</summary>
     public async Task<BillingScheduleView> CreateAsync(
@@ -44,7 +45,14 @@ public sealed class BillingService(
         var schedule = new BillingSchedule(
             account.TenantId, account.Id, account.CustomerId, scheduleRef, interval, firstAmountKobo, dueOffsetDays, description);
         db.BillingSchedules.Add(schedule);
-        await db.SaveChangesAsync(ct); // materialize Id before opening a period
+        try
+        {
+            await db.SaveChangesAsync(ct); // materialize Id before opening a period
+        }
+        catch (DbUpdateException) // partial unique index caught a concurrent create (ref or one-per-DVA)
+        {
+            throw new ConflictException($"A billing schedule already exists for accountRef '{accRef}'.");
+        }
 
         // Open the first period immediately so the schedule is usable at once, then attribute any
         // balance the DVA already carries.
@@ -139,6 +147,71 @@ public sealed class BillingService(
             await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Worker backstop: attribute any deposits the webhook path missed (e.g. lost an xmin race
+    /// with the billing worker). Idempotent via the water-mark, so it's a no-op once caught up. Runs
+    /// filter-free without a tenant context. Returns the number of schedules that moved.</summary>
+    public async Task<int> AttributePendingAsync(CancellationToken ct = default)
+    {
+        var vaIds = await db.BillingSchedules.IgnoreQueryFilters()
+            .Where(s => s.Status == BillingScheduleStatus.Active)
+            .OrderBy(s => s.CreatedAtUtc)
+            .Select(s => s.VirtualAccountId).Take(500).ToListAsync(ct);
+
+        var moved = 0;
+        foreach (var vaId in vaIds)
+        {
+            try { await AttributeDepositAsync(vaId, ct); moved++; }
+            catch (DbUpdateConcurrencyException) { /* lost a race; the next tick retries from the water-mark */ }
+        }
+        return moved;
+    }
+
+    /// <summary>Re-attribute after a deposit reversal: the DVA balance has dropped, so redistribute the
+    /// account's current (lower) total across periods oldest-first and re-open any period that is no
+    /// longer covered. Emits <c>billing.period.reopened</c> for periods that flipped out of Paid, and
+    /// raises an operational alert when funds had already been settled out (possible clawback needed).
+    /// Best-effort, called post-commit from the reconciliation reversal branch.</summary>
+    public async Task ReattributeAfterReversalAsync(Guid virtualAccountId, CancellationToken ct = default)
+    {
+        var account = await db.VirtualAccounts.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(v => v.Id == virtualAccountId, ct);
+        if (account is null) return;
+
+        // If we had already settled funds out and a deposit just reversed, we may now be short.
+        if (account.SettledUpToKobo > 0)
+            await alerter.NotifyOperationalAsync("Deposit reversed after settlement",
+                $"A deposit into {account.Reference} was reversed after {account.SettledUpToKobo} kobo had already been settled out. Balance is now {account.AmountPaidKobo} kobo — verify whether a clawback is required.",
+                $"reversal-{account.Id}", ct);
+
+        var schedule = await db.BillingSchedules.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.VirtualAccountId == virtualAccountId && s.Status == BillingScheduleStatus.Active, ct);
+        if (schedule is null) return;
+
+        var periods = await db.BillingPeriods.IgnoreQueryFilters()
+            .Where(p => p.BillingScheduleId == schedule.Id)
+            .OrderBy(p => p.Sequence).ToListAsync(ct);
+
+        var reopened = new List<BillingPeriod>();
+        foreach (var period in periods)
+            if (period.ResetAttribution())
+                reopened.Add(period);
+
+        // Redistribute the account's current total from scratch, oldest-first.
+        var now = clock.UtcNow;
+        var pool = account.AmountPaidKobo;
+        foreach (var period in periods)
+        {
+            if (pool <= 0) break;
+            pool -= period.Attribute(pool, now, out _);
+        }
+        schedule.ResetAttribution(account.AmountPaidKobo, pool);
+
+        foreach (var period in reopened.Where(p => p.Status != BillingPeriodStatus.Paid))
+            await outbound.PublishEventAsync(schedule.TenantId, "billing.period.reopened", PeriodEventData(schedule, account, period), ct);
+
+        await db.SaveChangesAsync(ct);
+    }
+
     /// <summary>Core attribution against already-loaded entities. Enqueues billing.period.paid events
     /// for periods it settles. Does not save. Returns whether anything changed.</summary>
     private async Task<bool> AttributeInternalAsync(BillingSchedule schedule, VirtualAccount account, CancellationToken ct)
@@ -184,9 +257,12 @@ public sealed class BillingService(
     /// draw carried-over credit into it. Returns the number of periods opened.</summary>
     public async Task<int> OpenDuePeriodsAsync(DateTimeOffset now, CancellationToken ct = default)
     {
+        // Oldest-due first so every schedule makes forward progress even when more than the cap are
+        // behind at once (otherwise an unordered Take could keep returning the same subset).
         var due = await db.BillingSchedules.IgnoreQueryFilters()
             .Where(s => s.Status == BillingScheduleStatus.Active
                 && (s.CurrentPeriodEndUtc == null || s.CurrentPeriodEndUtc <= now))
+            .OrderBy(s => s.CurrentPeriodEndUtc)
             .Take(200).ToListAsync(ct);
 
         var opened = 0;
@@ -197,12 +273,19 @@ public sealed class BillingService(
             if (account is null || account.Status != VirtualAccountStatus.Active)
                 continue;
 
-            var period = schedule.OpenNextPeriod(now);
-            db.BillingPeriods.Add(period);
-            await db.SaveChangesAsync(ct);
-            await AttributeInternalAsync(schedule, account, ct); // apply carry + any DVA balance
-            await db.SaveChangesAsync(ct);
-            opened++;
+            try
+            {
+                var period = schedule.OpenNextPeriod(now);
+                db.BillingPeriods.Add(period);
+                await db.SaveChangesAsync(ct);
+                await AttributeInternalAsync(schedule, account, ct); // apply carry + any DVA balance
+                await db.SaveChangesAsync(ct);
+                opened++;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // The reconciliation path advanced this schedule first; skip — the next tick re-evaluates.
+            }
         }
         return opened;
     }
@@ -239,13 +322,18 @@ public sealed class BillingService(
     /// <c>billing.period.overdue</c>. Returns the number marked overdue.</summary>
     public async Task<int> MarkOverdueAsync(DateTimeOffset now, CancellationToken ct = default)
     {
+        // Push the overdue-line predicate into SQL and order oldest-first, so the cap bounds
+        // *actually-overdue* rows — not the whole not-yet-due open population (which would starve the
+        // genuinely-overdue ones behind an arbitrary Take).
         var candidates = await db.BillingPeriods.IgnoreQueryFilters()
             .Where(p => !p.OverdueNotified
-                && (p.Status == BillingPeriodStatus.Open || p.Status == BillingPeriodStatus.PartiallyPaid))
+                && (p.Status == BillingPeriodStatus.Open || p.Status == BillingPeriodStatus.PartiallyPaid)
+                && (p.DueDateUtc > p.PeriodStartUtc ? p.DueDateUtc : p.PeriodEndUtc) < now)
+            .OrderBy(p => p.DueDateUtc)
             .Take(500).ToListAsync(ct);
 
         var count = 0;
-        foreach (var period in candidates.Where(p => p.OverdueLineUtc < now))
+        foreach (var period in candidates)
         {
             if (!period.MarkOverdue()) continue;
             var ctx = await LoadContextAsync(period, ct);

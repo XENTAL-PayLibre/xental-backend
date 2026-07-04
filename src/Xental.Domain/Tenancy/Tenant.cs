@@ -44,8 +44,16 @@ public sealed class Tenant : BaseEntity
     public void SetPassword(string passwordHash) =>
         PasswordHash = DomainException.Require(passwordHash, nameof(passwordHash));
 
-    public void SetBrandName(string? brandName) =>
-        BrandName = string.IsNullOrWhiteSpace(brandName) ? null : brandName.Trim();
+    public void SetBrandName(string? brandName)
+    {
+        if (string.IsNullOrWhiteSpace(brandName)) { BrandName = null; return; }
+        var trimmed = brandName.Trim();
+        // The brand is shown to payers on checkout pages and in transactional emails, so it must never
+        // carry markup — reject angle brackets rather than silently escape, so the merchant sees the error.
+        if (trimmed.IndexOfAny(['<', '>']) >= 0)
+            throw new DomainException("Brand name cannot contain '<' or '>'.");
+        BrandName = trimmed;
+    }
 
     public void MarkEmailVerified() => EmailVerified = true;
 

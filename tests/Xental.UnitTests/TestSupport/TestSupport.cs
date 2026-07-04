@@ -62,6 +62,23 @@ public sealed class FakeTenantContext : ITenantContext
     public Guid RequireTenantId() => TenantId ?? throw new InvalidOperationException("No tenant.");
 }
 
+/// <summary>Records operational alerts so tests can assert they fired.</summary>
+public sealed class FakeAlerter : IErrorAlerter
+{
+    public int OperationalAlerts { get; private set; }
+    public string? LastSubject { get; private set; }
+
+    public Task NotifyServerErrorAsync(Exception exception, string path, string method, string? traceId, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    public Task NotifyOperationalAsync(string subject, string message, string dedupeKey, CancellationToken ct = default)
+    {
+        OperationalAlerts++;
+        LastSubject = subject;
+        return Task.CompletedTask;
+    }
+}
+
 public sealed class FakeAdminContext : IAdminContext
 {
     public Guid? AdminId { get; set; } = Guid.NewGuid();
@@ -83,10 +100,17 @@ public sealed class FakeEmailSender : IEmailSender
     public string? LastVerificationLink { get; private set; }
     public string? LastResetLink { get; private set; }
     public string? LastInviteLink { get; private set; }
+    public string? LastOtpCode { get; private set; }
 
     public Task SendEmailVerificationAsync(string toEmail, string verifyLink, CancellationToken ct = default)
     {
         LastVerificationLink = verifyLink;
+        return Task.CompletedTask;
+    }
+
+    public Task SendLoginOtpAsync(string toEmail, string code, CancellationToken ct = default)
+    {
+        LastOtpCode = code;
         return Task.CompletedTask;
     }
 
@@ -190,7 +214,8 @@ public sealed class FakeIdentityVerifier : IIdentityVerifier
 public static class TestProtector
 {
     public static AesSecretProtector Create() =>
-        new(Options.Create(new JwtOptions { SigningKey = new string('k', 40) }));
+        new(Options.Create(new JwtOptions { SigningKey = new string('k', 40) }),
+            Options.Create(new Xental.Infrastructure.Configuration.EncryptionOptions()));
 }
 
 /// <summary>In-memory document storage for KYB tests (records what was stored).</summary>

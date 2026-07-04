@@ -106,17 +106,23 @@ public sealed class SettlementWorker(
             var config = await db.SettlementConfigs.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(s => s.TenantId == account.TenantId, ct);
 
+            // Round identity is the *stable* from-boundary (the current water-mark), NOT `net`.
+            // `net` grows with every new deposit, so keying the settlement ref on it would re-key an
+            // in-flight round after a deposit and re-pay legs that already succeeded. The water-mark
+            // only advances when a round completes, so it is a stable key for the life of the round.
+            var roundKey = account.SettledUpToKobo;
+
             if (account.SubMerchantId is Guid subId)
-                await SettleToSubMerchantAsync(db, nomba, account, subId, config, net, unsettled, opts, alerter, now, ct);
+                await SettleToSubMerchantAsync(db, nomba, account, subId, config, roundKey, unsettled, opts, alerter, now, ct);
             else
-                await SettleToTenantAsync(db, nomba, account, config, net, unsettled, opts, alerter, now, ct);
+                await SettleToTenantAsync(db, nomba, account, config, roundKey, unsettled, opts, alerter, now, ct);
         }
     }
 
     /// <summary>Tenant-owned account: sweep to the tenant's settlement account or split plan.</summary>
     private async Task SettleToTenantAsync(
         IApplicationDbContext db, INombaClient nomba, VirtualAccount account, SettlementConfig? config,
-        long net, long unsettled, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
+        long roundKey, long unsettled, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
     {
         if (config is null || !config.CanAutoSettle)
             return; // not opted in / not configured — leave unsettled
@@ -134,16 +140,16 @@ public sealed class SettlementWorker(
 
         if (effective.Count == 0)
             await SettleSingleAsync(db, nomba, account, config.SettlementAccountNumber!, config.SettlementBankCode!,
-                config.SettlementAccountName, unsettled, net, "settlement", opts, alerter, now, ct);
+                config.SettlementAccountName, unsettled, roundKey, "settlement", opts, alerter, now, ct);
         else
-            await SettleLegsAsync(db, nomba, account, effective, unsettled, net, opts, alerter, now, ct);
+            await SettleLegsAsync(db, nomba, account, effective, unsettled, roundKey, opts, alerter, now, ct);
     }
 
     /// <summary>Sub-merchant-owned account: sweep to the sub-merchant's payout account, skimming the
     /// operator's platform fee first when configured.</summary>
     private async Task SettleToSubMerchantAsync(
         IApplicationDbContext db, INombaClient nomba, VirtualAccount account, Guid subMerchantId, SettlementConfig? config,
-        long net, long unsettled, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
+        long roundKey, long unsettled, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
     {
         var sub = await db.SubMerchants.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.Id == subMerchantId, ct);
         if (sub is null || !sub.HasPayoutAccount)
@@ -171,33 +177,39 @@ public sealed class SettlementWorker(
             var feeLeg = new SettlementSplit(account.TenantId, account.Id,
                 config!.SettlementAccountName ?? "Platform fee", config.SettlementAccountNumber!, config.SettlementBankCode!,
                 SplitBasis.Percentage, sub.PlatformFeeBps, 0, priority: 1);
-            await SettleLegsAsync(db, nomba, account, new List<SettlementSplit> { subLeg, feeLeg }, unsettled, net, opts, alerter, now, ct);
+            await SettleLegsAsync(db, nomba, account, new List<SettlementSplit> { subLeg, feeLeg }, unsettled, roundKey, opts, alerter, now, ct);
         }
         else
         {
             if (sub.PlatformFeeBps > 0 && !operatorHasAccount)
                 logger.LogWarning("Platform fee for sub-merchant {SubRef} waived — operator has no settlement account configured.", sub.Reference);
             await SettleSingleAsync(db, nomba, account, sub.SettlementAccountNumber!, sub.SettlementBankCode!,
-                sub.SettlementAccountName, unsettled, net, $"payout to {sub.Reference}", opts, alerter, now, ct);
+                sub.SettlementAccountName, unsettled, roundKey, $"payout to {sub.Reference}", opts, alerter, now, ct);
         }
     }
 
-    /// <summary>One transfer of <paramref name="amountKobo"/> to a single destination. Idempotent on
-    /// <c>settle-{id}-{batchKey}</c>; advances the account's water-mark to <paramref name="batchKey"/> on success.</summary>
+    /// <summary>One transfer of <paramref name="amountKobo"/> to a single destination. Idempotent on the
+    /// stable round key <c>settle-{id}-{roundKey}</c> (the from-water-mark), so a deposit landing mid-round
+    /// never re-keys or re-pays it. On success the water-mark advances by the amount actually sent
+    /// (<paramref name="roundKey"/> + transfer amount) — never to a larger, newer <c>net</c>.</summary>
     private async Task SettleSingleAsync(
         IApplicationDbContext db, INombaClient nomba, VirtualAccount account,
         string destAccountNumber, string destBankCode, string? destAccountName,
-        long amountKobo, long batchKey, string label, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
+        long amountKobo, long roundKey, string label, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
     {
-        var merchantRef = $"settle-{account.Id:N}-{batchKey}";
+        var merchantRef = $"settle-{account.Id:N}-{roundKey}";
         var existing = await db.Transfers.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.MerchantTxRef == merchantRef, ct);
 
         Transfer transfer;
         if (existing is not null)
         {
-            if (existing.Status == TransferStatus.Success) { account.MarkSettledUpTo(batchKey, now); await db.SaveChangesAsync(ct); return; }
+            // Already paid — advance the water-mark by what was actually sent (not the current net).
+            if (existing.Status == TransferStatus.Success) { account.MarkSettledUpTo(roundKey + existing.AmountKobo, now); await db.SaveChangesAsync(ct); return; }
             if (!ShouldRetry(existing, opts, now))
+            {
+                await AlertIfStalePendingAsync(existing, account, roundKey, opts, alerter, now, ct);
                 return; // in-flight, backing off, or retries exhausted — leave for the next tick / a human
+            }
             existing.BeginRetry();
             transfer = existing;
             await db.SaveChangesAsync(ct);
@@ -211,12 +223,13 @@ public sealed class SettlementWorker(
             await db.SaveChangesAsync(ct); // reserve the ref before calling the provider
         }
 
-        var result = await nomba.InitiateTransferAsync(merchantRef, amountKobo, destAccountNumber, destBankCode, destAccountName, transfer.Narration, ct);
+        // Always send the transfer's own amount (stable across retries), never a recomputed newer amount.
+        var result = await nomba.InitiateTransferAsync(merchantRef, transfer.AmountKobo, destAccountNumber, destBankCode, destAccountName, transfer.Narration, ct);
         if (result.Success)
         {
             transfer.MarkSucceeded(result.ProviderReference ?? merchantRef, now);
-            account.MarkSettledUpTo(batchKey, now);
-            logger.LogInformation("Settled {AccountRef}: {Kobo} kobo -> {Account} ({Label})", account.Reference, amountKobo, destAccountNumber, label);
+            account.MarkSettledUpTo(roundKey + transfer.AmountKobo, now);
+            logger.LogInformation("Settled {AccountRef}: {Kobo} kobo -> {Account} ({Label})", account.Reference, transfer.AmountKobo, destAccountNumber, label);
         }
         else
         {
@@ -225,8 +238,8 @@ public sealed class SettlementWorker(
             // Only alert once auto-retry can no longer recover it — otherwise the next tick will try again.
             if (alerter is not null && RetriesExhausted(transfer, opts))
                 await alerter.NotifyOperationalAsync("Settlement failed (retries exhausted)",
-                    $"Payout of {amountKobo} kobo for {account.Reference} to {destAccountNumber} failed after {transfer.RetryCount} retries: {result.FailureReason}. Held for manual review.",
-                    $"settle-fail-{account.Id}-{batchKey}", ct);
+                    $"Payout of {transfer.AmountKobo} kobo for {account.Reference} to {destAccountNumber} failed after {transfer.RetryCount} retries: {result.FailureReason}. Held for manual review.",
+                    $"settle-fail-{account.Id}-{roundKey}", ct);
         }
         await db.SaveChangesAsync(ct);
     }
@@ -245,15 +258,33 @@ public sealed class SettlementWorker(
     private static bool RetriesExhausted(Transfer transfer, SettlementOptions opts) =>
         opts.MaxPayoutRetries <= 0 || transfer.RetryCount >= opts.MaxPayoutRetries;
 
+    /// <summary>A transfer stuck in <c>Pending</c> past the grace window likely died in-flight (crash
+    /// between reserving the ref and recording the provider result). We don't auto-retry it — the
+    /// provider may have actually sent it, so re-initiating could double-pay — but we alert an operator
+    /// (throttled) to reconcile it against Nomba by its merchant ref, rather than leaving it silent.</summary>
+    private static async Task AlertIfStalePendingAsync(
+        Transfer transfer, VirtualAccount account, long roundKey, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
+    {
+        if (alerter is null || transfer.Status != TransferStatus.Pending)
+            return;
+        var age = now - (transfer.UpdatedAtUtc ?? transfer.CreatedAtUtc);
+        if (age < TimeSpan.FromMinutes(Math.Max(1, opts.StalePayoutMinutes)))
+            return;
+        await alerter.NotifyOperationalAsync("Settlement stuck in PENDING",
+            $"Payout {transfer.MerchantTxRef} ({transfer.AmountKobo} kobo) for {account.Reference} has been PENDING for over {opts.StalePayoutMinutes} minutes — it may have died in-flight. Verify at Nomba whether it sent, then resolve it manually (mark failed to retry, or succeeded to advance the water-mark).",
+            $"settle-pending-{account.Id}-{roundKey}", ct);
+    }
+
     /// <summary>
-    /// Fan <paramref name="amountKobo"/> out across the legs as N idempotent transfers
-    /// (<c>settle-{id}-{batchKey}-{i}</c>). The allocator guarantees the legs sum to exactly the amount;
-    /// a misconfiguration that exceeds it aborts without moving money. The water-mark advances only once
-    /// every leg has succeeded.
+    /// Fan <paramref name="amountKobo"/> out across the legs as N idempotent transfers keyed on the stable
+    /// round key (<c>settle-{id}-{roundKey}-{i}</c>). The allocator guarantees the legs sum to exactly the
+    /// amount; a misconfiguration that exceeds it aborts without moving money. Legs already created keep
+    /// their original amount across retries, so a deposit landing mid-round never re-pays a leg. The
+    /// water-mark advances only once every leg has succeeded, by the total actually sent.
     /// </summary>
     private async Task SettleLegsAsync(
         IApplicationDbContext db, INombaClient nomba, VirtualAccount account, List<SettlementSplit> splits,
-        long amountKobo, long batchKey, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
+        long amountKobo, long roundKey, SettlementOptions opts, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
     {
         IReadOnlyList<SplitCalculator.Leg> legs;
         try { legs = SplitCalculator.Allocate(amountKobo, splits); }
@@ -264,21 +295,25 @@ public sealed class SettlementWorker(
         }
 
         var allSucceeded = true;
+        var sentTotal = 0L;
         for (var i = 0; i < legs.Count; i++)
         {
             var leg = legs[i];
             if (leg.AmountKobo <= 0)
                 continue;
 
-            var merchantRef = $"settle-{account.Id:N}-{batchKey}-{i}";
+            var merchantRef = $"settle-{account.Id:N}-{roundKey}-{i}";
             var existing = await db.Transfers.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.MerchantTxRef == merchantRef, ct);
 
             Transfer transfer;
             if (existing is not null)
             {
                 if (existing.Status == TransferStatus.Success)
+                {
+                    sentTotal += existing.AmountKobo; // count already-paid legs toward the round total
                     continue; // leg already paid — don't double-pay
-                if (!ShouldRetry(existing, opts, now)) { allSucceeded = false; continue; }
+                }
+                if (!ShouldRetry(existing, opts, now)) { await AlertIfStalePendingAsync(existing, account, roundKey, opts, alerter, now, ct); allSucceeded = false; continue; }
                 existing.BeginRetry();
                 transfer = existing;
                 await db.SaveChangesAsync(ct);
@@ -293,12 +328,14 @@ public sealed class SettlementWorker(
                 await db.SaveChangesAsync(ct); // reserve the leg ref before calling the provider
             }
 
-            var result = await nomba.InitiateTransferAsync(merchantRef, leg.AmountKobo,
+            // Send the leg transfer's own (stable) amount, never a recomputed one.
+            var result = await nomba.InitiateTransferAsync(merchantRef, transfer.AmountKobo,
                 leg.Split.BeneficiaryAccountNumber, leg.Split.BeneficiaryBankCode, leg.Split.BeneficiaryName, transfer.Narration, ct);
             if (result.Success)
             {
                 transfer.MarkSucceeded(result.ProviderReference ?? merchantRef, now);
-                logger.LogInformation("Split leg {Leg} for {AccountRef}: {Kobo} kobo -> {Account}", i, account.Reference, leg.AmountKobo, leg.Split.BeneficiaryAccountNumber);
+                sentTotal += transfer.AmountKobo;
+                logger.LogInformation("Split leg {Leg} for {AccountRef}: {Kobo} kobo -> {Account}", i, account.Reference, transfer.AmountKobo, leg.Split.BeneficiaryAccountNumber);
             }
             else
             {
@@ -307,15 +344,15 @@ public sealed class SettlementWorker(
                 logger.LogWarning("Split leg {Leg} for {AccountRef} failed: {Reason}", i, account.Reference, result.FailureReason);
                 if (alerter is not null && RetriesExhausted(transfer, opts))
                     await alerter.NotifyOperationalAsync("Settlement leg failed (retries exhausted)",
-                        $"Split leg {i} ({leg.AmountKobo} kobo) for {account.Reference} to {leg.Split.BeneficiaryAccountNumber} failed after {transfer.RetryCount} retries: {result.FailureReason}.",
-                        $"settle-fail-{account.Id}-{batchKey}-{i}", ct);
+                        $"Split leg {i} ({transfer.AmountKobo} kobo) for {account.Reference} to {leg.Split.BeneficiaryAccountNumber} failed after {transfer.RetryCount} retries: {result.FailureReason}.",
+                        $"settle-fail-{account.Id}-{roundKey}-{i}", ct);
             }
             await db.SaveChangesAsync(ct);
         }
 
         if (allSucceeded)
         {
-            account.MarkSettledUpTo(batchKey, now);
+            account.MarkSettledUpTo(roundKey + sentTotal, now);
             await db.SaveChangesAsync(ct);
         }
     }

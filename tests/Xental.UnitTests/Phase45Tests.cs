@@ -18,7 +18,8 @@ public class SecretProtectorTests
     [Fact]
     public void Protect_then_unprotect_round_trips_and_ciphertext_hides_plaintext()
     {
-        var p = new AesSecretProtector(Options.Create(new JwtOptions { SigningKey = new string('k', 40) }));
+        var p = new AesSecretProtector(Options.Create(new JwtOptions { SigningKey = new string('k', 40) }),
+            Options.Create(new Xental.Infrastructure.Configuration.EncryptionOptions()));
         var secret = "whsec_super-secret-value";
         var cipher = p.Protect(secret);
         cipher.Should().NotContain("whsec");
@@ -73,7 +74,7 @@ public class OutboundEmitTests
         new(ctx, new FakeSignatureVerifier(true), new RiskEvaluator(ctx, db.Clock), new OutboundEventPublisher(ctx, db.Clock),
             new Xental.Infrastructure.Payments.InMemoryReconciliationNotifier(),
             new RuleEngine(ctx, new OutboundEventPublisher(ctx, db.Clock), db.Clock),
-            new Xental.Application.Billing.BillingService(ctx, db.Tenant, new OutboundEventPublisher(ctx, db.Clock), new FakeEmailSender(), db.Clock),
+            new Xental.Application.Billing.BillingService(ctx, db.Tenant, new OutboundEventPublisher(ctx, db.Clock), new FakeEmailSender(), new FakeAlerter(), db.Clock),
             db.Clock);
 
     [Fact]

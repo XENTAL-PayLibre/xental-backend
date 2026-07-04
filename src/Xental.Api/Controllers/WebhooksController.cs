@@ -28,7 +28,8 @@ public sealed class WebhooksController(
     /// <response code="200">Accepted (processed, duplicate, ignored, or unmatched).</response>
     /// <response code="401">Invalid or missing signature.</response>
     [HttpPost("nomba")]
-    [DisableRateLimiting]
+    [EnableRateLimiting("webhook")]   // generous per-IP ceiling (tolerates Nomba retry bursts, caps DoS)
+    [RequestSizeLimit(256 * 1024)]    // reject oversized bodies before we parse/HMAC them
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Nomba(CancellationToken ct)

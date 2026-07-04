@@ -28,6 +28,14 @@ public sealed class ResendEmailSender(
              <p>This link expires soon. If you didn't create a Xental account, you can ignore this email.</p>
              """, ct);
 
+    public Task SendLoginOtpAsync(string toEmail, string code, CancellationToken ct = default) =>
+        SendAsync(toEmail, "Your Xental login code",
+            $"""
+             <p>Your Xental login code is:</p>
+             <p style="font-size:28px;font-weight:700;letter-spacing:4px">{System.Net.WebUtility.HtmlEncode(code)}</p>
+             <p>It expires in 10 minutes. If you didn't try to sign in, change your password — someone may know it.</p>
+             """, ct);
+
     public Task SendPasswordResetAsync(string toEmail, string resetLink, CancellationToken ct = default) =>
         SendAsync(toEmail, "Reset your Xental password",
             $"""
@@ -54,12 +62,14 @@ public sealed class ResendEmailSender(
     {
         var amount = "₦" + (amountKobo / 100m).ToString("N2");
         var due = dueDateUtc.ToString("dd MMM yyyy");
+        // Defense in depth: the brand is merchant-controlled and rendered inside HTML — always encode it.
+        var safeBrand = System.Net.WebUtility.HtmlEncode(brand);
         var subject = overdue
             ? $"Payment overdue — {brand}"
             : $"Payment due — {brand}";
         var lead = overdue
-            ? $"<p>Your payment to <strong>{brand}</strong> is now overdue.</p>"
-            : $"<p>You have a payment due to <strong>{brand}</strong>.</p>";
+            ? $"<p>Your payment to <strong>{safeBrand}</strong> is now overdue.</p>"
+            : $"<p>You have a payment due to <strong>{safeBrand}</strong>.</p>";
         return SendAsync(toEmail, subject,
             $"""
              {lead}

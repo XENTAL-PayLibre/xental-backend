@@ -25,6 +25,7 @@ public sealed class BillingController(BillingService billing) : ControllerBase
     /// <response code="404">No virtual account for the given accountRef.</response>
     /// <response code="409">The account already has an active schedule (or ref clash).</response>
     [HttpPost("schedules")]
+    [Authorize(Policy = AuthPolicies.ManageBilling)]
     [ProducesResponseType(typeof(BillingScheduleResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -54,6 +55,7 @@ public sealed class BillingController(BillingService billing) : ControllerBase
 
     /// <summary>Set the expected amount for the next cycle (variable billing).</summary>
     [HttpPut("schedules/{id:guid}/next-amount")]
+    [Authorize(Policy = AuthPolicies.ManageBilling)]
     [ProducesResponseType(typeof(BillingScheduleResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<BillingScheduleResponse>> SetNextAmount(Guid id, SetNextAmountRequest request, CancellationToken ct) =>
@@ -61,18 +63,21 @@ public sealed class BillingController(BillingService billing) : ControllerBase
 
     /// <summary>Pause a schedule (stops opening new periods).</summary>
     [HttpPost("schedules/{id:guid}/pause")]
+    [Authorize(Policy = AuthPolicies.ManageBilling)]
     [ProducesResponseType(typeof(BillingScheduleResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<BillingScheduleResponse>> Pause(Guid id, CancellationToken ct) =>
         Ok(ToResponse(await billing.PauseAsync(id, ct)));
 
     /// <summary>Resume a paused schedule.</summary>
     [HttpPost("schedules/{id:guid}/resume")]
+    [Authorize(Policy = AuthPolicies.ManageBilling)]
     [ProducesResponseType(typeof(BillingScheduleResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<BillingScheduleResponse>> Resume(Guid id, CancellationToken ct) =>
         Ok(ToResponse(await billing.ResumeAsync(id, ct)));
 
     /// <summary>Cancel a schedule permanently.</summary>
     [HttpPost("schedules/{id:guid}/cancel")]
+    [Authorize(Policy = AuthPolicies.ManageBilling)]
     [ProducesResponseType(typeof(BillingScheduleResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<BillingScheduleResponse>> Cancel(Guid id, CancellationToken ct) =>
         Ok(ToResponse(await billing.CancelAsync(id, ct)));
