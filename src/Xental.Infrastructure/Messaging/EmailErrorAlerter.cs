@@ -48,6 +48,29 @@ public sealed class EmailErrorAlerter(
         await email.SendOperationalAlertAsync(_options.Email, subject, html, ct);
     }
 
+    public async Task NotifyOperationalAsync(string subject, string message, string dedupeKey, CancellationToken ct = default)
+    {
+        if (!_options.IsActive)
+            return;
+
+        var now = clock.UtcNow;
+        var signature = $"op|{dedupeKey}";
+        if (_recent.TryGetValue(signature, out var last) && now - last < TimeSpan.FromMinutes(_options.ThrottleMinutes))
+            return;
+        _recent[signature] = now;
+        Prune(now);
+
+        var html =
+            $"""
+             <p>{WebUtility.HtmlEncode(message)}</p>
+             <p>Time: {now:o}</p>
+             """;
+
+        using var scope = scopeFactory.CreateScope();
+        var email = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+        await email.SendOperationalAlertAsync(_options.Email, $"[Xental] {subject}", html, ct);
+    }
+
     private void Prune(DateTimeOffset now)
     {
         if (_recent.Count < 500) return;

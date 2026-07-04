@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Xental.Application.Common.Interfaces;
 using Xental.Domain.Common;
 using Xental.Domain.Merchants;
@@ -44,7 +45,13 @@ public sealed class SettlementWorker(
         var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
         var nomba = scope.ServiceProvider.GetRequiredService<INombaClient>();
         var clock = scope.ServiceProvider.GetRequiredService<IClock>();
+        var opts = scope.ServiceProvider.GetService<IOptions<SettlementOptions>>()?.Value ?? new SettlementOptions();
+        var alerter = scope.ServiceProvider.GetService<IErrorAlerter>();
         var now = clock.UtcNow;
+
+        // Master kill switch: pause all real payouts without a redeploy.
+        if (!opts.PayoutsEnabled)
+            return;
 
         // Candidates: active accounts with gross beyond the settled water-mark. Fixed-amount accounts
         // only once complete; open/reusable accounts whenever they have accrued something new.
@@ -71,28 +78,45 @@ public sealed class SettlementWorker(
             if (held)
                 continue;
 
-            // Net collected so far, and the slice not yet settled.
-            var net = await db.Transactions.IgnoreQueryFilters()
-                .Where(t => t.VirtualAccountId == account.Id)
+            // Net collected so far = credited inflows minus reversed ones. A reversal stores a positive
+            // NetCreditKobo (Reconciliation=Reversed), so it must be SUBTRACTED, not summed in.
+            var credited = await db.Transactions.IgnoreQueryFilters()
+                .Where(t => t.VirtualAccountId == account.Id && t.Reconciliation != ReconciliationStatus.Reversed)
                 .SumAsync(t => (long?)t.NetCreditKobo, ct) ?? 0;
+            var reversed = await db.Transactions.IgnoreQueryFilters()
+                .Where(t => t.VirtualAccountId == account.Id && t.Reconciliation == ReconciliationStatus.Reversed)
+                .SumAsync(t => (long?)t.NetCreditKobo, ct) ?? 0;
+            var net = credited - reversed;
             var unsettled = account.UnsettledKobo(net);
             if (unsettled <= 0)
                 continue;
+
+            // Payout cap: never auto-move more than the configured ceiling in one round — hold + alert.
+            if (opts.MaxPayoutKobo > 0 && unsettled > opts.MaxPayoutKobo)
+            {
+                logger.LogWarning("Settlement of {Kobo} kobo for {AccountRef} exceeds the payout cap ({Cap}) — held for manual review.",
+                    unsettled, account.Reference, opts.MaxPayoutKobo);
+                if (alerter is not null)
+                    await alerter.NotifyOperationalAsync("Settlement held: over payout cap",
+                        $"Account {account.Reference} has {unsettled} kobo to settle, above the {opts.MaxPayoutKobo} kobo cap. Held for manual review.",
+                        $"cap-{account.Id}", ct);
+                continue;
+            }
 
             var config = await db.SettlementConfigs.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(s => s.TenantId == account.TenantId, ct);
 
             if (account.SubMerchantId is Guid subId)
-                await SettleToSubMerchantAsync(db, nomba, account, subId, config, net, unsettled, now, ct);
+                await SettleToSubMerchantAsync(db, nomba, account, subId, config, net, unsettled, alerter, now, ct);
             else
-                await SettleToTenantAsync(db, nomba, account, config, net, unsettled, now, ct);
+                await SettleToTenantAsync(db, nomba, account, config, net, unsettled, alerter, now, ct);
         }
     }
 
     /// <summary>Tenant-owned account: sweep to the tenant's settlement account or split plan.</summary>
     private async Task SettleToTenantAsync(
         IApplicationDbContext db, INombaClient nomba, VirtualAccount account, SettlementConfig? config,
-        long net, long unsettled, DateTimeOffset now, CancellationToken ct)
+        long net, long unsettled, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
     {
         if (config is null || !config.CanAutoSettle)
             return; // not opted in / not configured — leave unsettled
@@ -110,16 +134,16 @@ public sealed class SettlementWorker(
 
         if (effective.Count == 0)
             await SettleSingleAsync(db, nomba, account, config.SettlementAccountNumber!, config.SettlementBankCode!,
-                config.SettlementAccountName, unsettled, net, "settlement", now, ct);
+                config.SettlementAccountName, unsettled, net, "settlement", alerter, now, ct);
         else
-            await SettleLegsAsync(db, nomba, account, effective, unsettled, net, now, ct);
+            await SettleLegsAsync(db, nomba, account, effective, unsettled, net, alerter, now, ct);
     }
 
     /// <summary>Sub-merchant-owned account: sweep to the sub-merchant's payout account, skimming the
     /// operator's platform fee first when configured.</summary>
     private async Task SettleToSubMerchantAsync(
         IApplicationDbContext db, INombaClient nomba, VirtualAccount account, Guid subMerchantId, SettlementConfig? config,
-        long net, long unsettled, DateTimeOffset now, CancellationToken ct)
+        long net, long unsettled, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
     {
         var sub = await db.SubMerchants.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.Id == subMerchantId, ct);
         if (sub is null || !sub.HasPayoutAccount)
@@ -147,14 +171,14 @@ public sealed class SettlementWorker(
             var feeLeg = new SettlementSplit(account.TenantId, account.Id,
                 config!.SettlementAccountName ?? "Platform fee", config.SettlementAccountNumber!, config.SettlementBankCode!,
                 SplitBasis.Percentage, sub.PlatformFeeBps, 0, priority: 1);
-            await SettleLegsAsync(db, nomba, account, new List<SettlementSplit> { subLeg, feeLeg }, unsettled, net, now, ct);
+            await SettleLegsAsync(db, nomba, account, new List<SettlementSplit> { subLeg, feeLeg }, unsettled, net, alerter, now, ct);
         }
         else
         {
             if (sub.PlatformFeeBps > 0 && !operatorHasAccount)
                 logger.LogWarning("Platform fee for sub-merchant {SubRef} waived — operator has no settlement account configured.", sub.Reference);
             await SettleSingleAsync(db, nomba, account, sub.SettlementAccountNumber!, sub.SettlementBankCode!,
-                sub.SettlementAccountName, unsettled, net, $"payout to {sub.Reference}", now, ct);
+                sub.SettlementAccountName, unsettled, net, $"payout to {sub.Reference}", alerter, now, ct);
         }
     }
 
@@ -163,7 +187,7 @@ public sealed class SettlementWorker(
     private async Task SettleSingleAsync(
         IApplicationDbContext db, INombaClient nomba, VirtualAccount account,
         string destAccountNumber, string destBankCode, string? destAccountName,
-        long amountKobo, long batchKey, string label, DateTimeOffset now, CancellationToken ct)
+        long amountKobo, long batchKey, string label, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
     {
         var merchantRef = $"settle-{account.Id:N}-{batchKey}";
         var existing = await db.Transfers.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.MerchantTxRef == merchantRef, ct);
@@ -189,6 +213,10 @@ public sealed class SettlementWorker(
         {
             transfer.MarkFailed(result.FailureReason ?? "settlement failed", now);
             logger.LogWarning("Settlement failed for {AccountRef}: {Reason}", account.Reference, result.FailureReason);
+            if (alerter is not null)
+                await alerter.NotifyOperationalAsync("Settlement failed",
+                    $"Payout of {amountKobo} kobo for {account.Reference} to {destAccountNumber} failed: {result.FailureReason}. It will not auto-retry.",
+                    $"settle-fail-{account.Id}-{batchKey}", ct);
         }
         await db.SaveChangesAsync(ct);
     }
@@ -201,7 +229,7 @@ public sealed class SettlementWorker(
     /// </summary>
     private async Task SettleLegsAsync(
         IApplicationDbContext db, INombaClient nomba, VirtualAccount account, List<SettlementSplit> splits,
-        long amountKobo, long batchKey, DateTimeOffset now, CancellationToken ct)
+        long amountKobo, long batchKey, IErrorAlerter? alerter, DateTimeOffset now, CancellationToken ct)
     {
         IReadOnlyList<SplitCalculator.Leg> legs;
         try { legs = SplitCalculator.Allocate(amountKobo, splits); }
@@ -244,6 +272,10 @@ public sealed class SettlementWorker(
                 transfer.MarkFailed(result.FailureReason ?? "split settlement failed", now);
                 allSucceeded = false;
                 logger.LogWarning("Split leg {Leg} for {AccountRef} failed: {Reason}", i, account.Reference, result.FailureReason);
+                if (alerter is not null)
+                    await alerter.NotifyOperationalAsync("Settlement leg failed",
+                        $"Split leg {i} ({leg.AmountKobo} kobo) for {account.Reference} to {leg.Split.BeneficiaryAccountNumber} failed: {result.FailureReason}.",
+                        $"settle-fail-{account.Id}-{batchKey}-{i}", ct);
             }
             await db.SaveChangesAsync(ct);
         }
