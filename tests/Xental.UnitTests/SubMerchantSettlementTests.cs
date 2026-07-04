@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xental.Application.Common.Interfaces;
 using Xental.Application.Merchants;
 using Xental.Domain.Common;
@@ -16,23 +17,25 @@ namespace Xental.UnitTests;
 public class SubMerchantSettlementTests
 {
     // --- worker harness (mirrors SplitWorkerTests) ---------------------------
-    private sealed class Factory(TestDatabase db, INombaClient nomba) : Microsoft.Extensions.DependencyInjection.IServiceScopeFactory
+    private sealed class Factory(TestDatabase db, INombaClient nomba, SettlementOptions? opts) : Microsoft.Extensions.DependencyInjection.IServiceScopeFactory
     {
-        public Microsoft.Extensions.DependencyInjection.IServiceScope CreateScope() => new Scope(db, nomba);
-        private sealed class Scope(TestDatabase db, INombaClient nomba) : Microsoft.Extensions.DependencyInjection.IServiceScope, IServiceProvider
+        public Microsoft.Extensions.DependencyInjection.IServiceScope CreateScope() => new Scope(db, nomba, opts);
+        private sealed class Scope(TestDatabase db, INombaClient nomba, SettlementOptions? opts) : Microsoft.Extensions.DependencyInjection.IServiceScope, IServiceProvider
         {
             private readonly XentalDbContext _ctx = db.CreateContext();
             public IServiceProvider ServiceProvider => this;
             public object? GetService(Type t) =>
                 t == typeof(IApplicationDbContext) ? _ctx
                 : t == typeof(INombaClient) ? nomba
-                : t == typeof(IClock) ? db.Clock : null;
+                : t == typeof(IClock) ? db.Clock
+                : t == typeof(IOptions<SettlementOptions>) ? Options.Create(opts ?? new SettlementOptions())
+                : null;
             public void Dispose() => _ctx.Dispose();
         }
     }
 
-    private static SettlementWorker Worker(TestDatabase db, INombaClient nomba) =>
-        new(new Factory(db, nomba), NullLogger<SettlementWorker>.Instance);
+    private static SettlementWorker Worker(TestDatabase db, INombaClient nomba, SettlementOptions? opts = null) =>
+        new(new Factory(db, nomba, opts), NullLogger<SettlementWorker>.Instance);
 
     private static SubMerchant NewSub(Guid tenantId, string bankCode, string account, int feeBps)
     {
@@ -123,6 +126,86 @@ public class SubMerchantSettlementTests
         transfers.Select(t => t.AmountKobo).Should().BeEquivalentTo(new[] { 300_00L, 500_00L });
         transfers.Should().OnlyContain(t => t.RecipientAccountNumber == "0000000009");
         (await check.VirtualAccounts.IgnoreQueryFilters().FirstAsync(v => v.Id == accountId)).SettledUpToKobo.Should().Be(800_00);
+    }
+
+    [Fact]
+    public async Task Reversed_deposit_is_excluded_from_the_settled_net()
+    {
+        using var db = new TestDatabase();
+        await using (var ctx = db.CreateContext())
+        {
+            var t = new Tenant("Acme", $"a-{Guid.NewGuid():N}@x.com", "h"); ctx.Tenants.Add(t);
+            var cfg = new SettlementConfig(t.Id);
+            cfg.Update("0123456789", "011", "Acme Ltd", autoSettle: true, 0);
+            ctx.SettlementConfigs.Add(cfg);
+            var c = new Customer(t.Id, "ref-1", "Payer"); ctx.Customers.Add(c);
+            var va = new VirtualAccount(t.Id, c.Id, "ref-1", "1234567890", "Bank", "Payer"); // open account
+            va.ApplyInflow(Money.FromKobo(1_000_00));
+            va.ApplyInflow(Money.FromKobo(500_00));
+            va.ReverseInflow(Money.FromKobo(500_00)); // the 500 deposit is reversed
+            ctx.VirtualAccounts.Add(va);
+            ctx.Transactions.Add(new Transaction(t.Id, va.Id, "a", "Payer", Money.FromKobo(1_000_00), Money.FromKobo(0), TransactionStatus.Success, ReconciliationStatus.Reconciled, null, db.Clock.UtcNow, db.Clock.UtcNow));
+            ctx.Transactions.Add(new Transaction(t.Id, va.Id, "b", "Payer", Money.FromKobo(500_00), Money.FromKobo(0), TransactionStatus.Success, ReconciliationStatus.Reconciled, null, db.Clock.UtcNow, db.Clock.UtcNow));
+            ctx.Transactions.Add(new Transaction(t.Id, va.Id, "b-rev", "Payer", Money.FromKobo(500_00), Money.FromKobo(0), TransactionStatus.Failed, ReconciliationStatus.Reversed, TransactionFlag.Reversed, db.Clock.UtcNow, db.Clock.UtcNow));
+            await ctx.SaveChangesAsync();
+        }
+
+        await Worker(db, new FakeNombaClient { TransferSucceeds = true }).RunOnceAsync();
+
+        await using var check = db.CreateContext();
+        var transfer = await check.Transfers.IgnoreQueryFilters().SingleAsync();
+        transfer.AmountKobo.Should().Be(1_000_00, "the reversed 500 is subtracted; the buggy sum-all net would be 2000");
+    }
+
+    [Fact]
+    public async Task Payout_over_the_cap_is_held_not_paid()
+    {
+        using var db = new TestDatabase();
+        Guid accountId;
+        await using (var ctx = db.CreateContext())
+        {
+            var t = new Tenant("Acme", $"a-{Guid.NewGuid():N}@x.com", "h"); ctx.Tenants.Add(t);
+            var cfg = new SettlementConfig(t.Id);
+            cfg.Update("0123456789", "011", "Acme Ltd", autoSettle: true, 0);
+            ctx.SettlementConfigs.Add(cfg);
+            var c = new Customer(t.Id, "ref-1", "Payer"); ctx.Customers.Add(c);
+            var va = new VirtualAccount(t.Id, c.Id, "ref-1", "1234567890", "Bank", "Payer", expectedAmountKobo: 10_000_00);
+            va.ApplyInflow(Money.FromKobo(10_000_00));
+            ctx.VirtualAccounts.Add(va);
+            ctx.Transactions.Add(new Transaction(t.Id, va.Id, "big", "Payer", Money.FromKobo(10_000_00), Money.FromKobo(0), TransactionStatus.Success, ReconciliationStatus.Reconciled, null, db.Clock.UtcNow, db.Clock.UtcNow));
+            await ctx.SaveChangesAsync();
+            accountId = va.Id;
+        }
+
+        await Worker(db, new FakeNombaClient { TransferSucceeds = true }, new SettlementOptions { MaxPayoutKobo = 5_000_00 }).RunOnceAsync();
+
+        await using var check = db.CreateContext();
+        (await check.Transfers.IgnoreQueryFilters().CountAsync()).Should().Be(0, "over-cap settlements are held for manual review");
+        (await check.VirtualAccounts.IgnoreQueryFilters().FirstAsync(v => v.Id == accountId)).IsSettled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Kill_switch_disables_all_payouts()
+    {
+        using var db = new TestDatabase();
+        await using (var ctx = db.CreateContext())
+        {
+            var t = new Tenant("Acme", $"a-{Guid.NewGuid():N}@x.com", "h"); ctx.Tenants.Add(t);
+            var cfg = new SettlementConfig(t.Id);
+            cfg.Update("0123456789", "011", "Acme Ltd", autoSettle: true, 0);
+            ctx.SettlementConfigs.Add(cfg);
+            var c = new Customer(t.Id, "ref-1", "Payer"); ctx.Customers.Add(c);
+            var va = new VirtualAccount(t.Id, c.Id, "ref-1", "1234567890", "Bank", "Payer", expectedAmountKobo: 1_000_00);
+            va.ApplyInflow(Money.FromKobo(1_000_00));
+            ctx.VirtualAccounts.Add(va);
+            ctx.Transactions.Add(new Transaction(t.Id, va.Id, "x", "Payer", Money.FromKobo(1_000_00), Money.FromKobo(0), TransactionStatus.Success, ReconciliationStatus.Reconciled, null, db.Clock.UtcNow, db.Clock.UtcNow));
+            await ctx.SaveChangesAsync();
+        }
+
+        await Worker(db, new FakeNombaClient { TransferSucceeds = true }, new SettlementOptions { PayoutsEnabled = false }).RunOnceAsync();
+
+        await using var check = db.CreateContext();
+        (await check.Transfers.IgnoreQueryFilters().CountAsync()).Should().Be(0, "payouts are switched off");
     }
 
     [Fact]

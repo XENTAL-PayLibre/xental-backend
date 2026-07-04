@@ -61,6 +61,7 @@ public static class DependencyInjection
         // Nomba auth primitive (token provider caches the 30-min token across requests).
         // The virtual-account client that uses it is added in Phase 2.
         services.AddOptions<NombaOptions>().Bind(configuration.GetSection(NombaOptions.SectionName));
+        services.AddOptions<Payments.SettlementOptions>().Bind(configuration.GetSection(Payments.SettlementOptions.SectionName));
         services.AddHttpClient("nomba", (sp, client) =>
         {
             var options = sp.GetRequiredService<IOptions<NombaOptions>>().Value;

@@ -91,9 +91,21 @@ public sealed class SubMerchantService(
             .ToListAsync(ct);
 
         var vaIds = vas.Select(v => v.Id).ToList();
-        var collected = vaIds.Count == 0 ? 0L : await db.Transactions.AsNoTracking()
-            .Where(t => t.VirtualAccountId != null && vaIds.Contains(t.VirtualAccountId.Value))
-            .SumAsync(t => (long?)t.NetCreditKobo, ct) ?? 0L;
+        long collected = 0L;
+        if (vaIds.Count > 0)
+        {
+            // Net collected = credited inflows minus reversed ones (a reversal is stored with a positive
+            // NetCreditKobo, so it must be subtracted rather than summed in).
+            var credited = await db.Transactions.AsNoTracking()
+                .Where(t => t.VirtualAccountId != null && vaIds.Contains(t.VirtualAccountId.Value)
+                    && t.Reconciliation != Xental.Domain.Payments.ReconciliationStatus.Reversed)
+                .SumAsync(t => (long?)t.NetCreditKobo, ct) ?? 0L;
+            var reversed = await db.Transactions.AsNoTracking()
+                .Where(t => t.VirtualAccountId != null && vaIds.Contains(t.VirtualAccountId.Value)
+                    && t.Reconciliation == Xental.Domain.Payments.ReconciliationStatus.Reversed)
+                .SumAsync(t => (long?)t.NetCreditKobo, ct) ?? 0L;
+            collected = credited - reversed;
+        }
 
         var settled = vas.Sum(v => v.SettledUpToKobo);
         return new SubMerchantBalance(sub.Id, sub.Reference, collected, settled, Math.Max(0, collected - settled), vas.Count);
