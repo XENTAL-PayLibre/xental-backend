@@ -52,6 +52,7 @@ public sealed class S3DocumentStorage : IDocumentStorage
             Key = objectKey,
             InputStream = content,
             ContentType = contentType,
+            AutoCloseStream = false, // the caller owns the stream's lifetime; don't dispose it here
             DisablePayloadSigning = _disablePayloadSigning,
         }, ct);
     }
