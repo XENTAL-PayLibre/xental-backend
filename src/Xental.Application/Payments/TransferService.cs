@@ -62,7 +62,7 @@ public sealed class TransferService(
         db.Transfers.Add(transfer);
         await db.SaveChangesAsync(ct); // persist Pending first — the ref is now reserved
 
-        var result = await nomba.InitiateTransferAsync(reference, amountKobo, accountNumber.Trim(), bankCode.Trim(), narration, ct);
+        var result = await nomba.InitiateTransferAsync(reference, amountKobo, accountNumber.Trim(), bankCode.Trim(), null, narration, ct);
         if (result.Success)
             transfer.MarkSucceeded(result.ProviderReference ?? reference, clock.UtcNow);
         else

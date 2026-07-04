@@ -147,7 +147,7 @@ public sealed class FakeNombaClient(string accountNumber = "1234567890") : INomb
             : Task.FromResult(new BankAccountName(LookupAccountName, accountNumber, bankCode));
 
     public Task<TransferResult> InitiateTransferAsync(
-        string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? narration, CancellationToken ct = default) =>
+        string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? accountName, string? narration, CancellationToken ct = default) =>
         Task.FromResult(TransferSucceeds
             ? new TransferResult(true, "prov-" + merchantTxRef, null)
             : new TransferResult(false, null, "declined"));
