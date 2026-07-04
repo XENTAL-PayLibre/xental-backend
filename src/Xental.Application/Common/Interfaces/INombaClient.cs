@@ -27,5 +27,5 @@ public interface INombaClient
 
     /// <summary>Initiate an outbound bank transfer (payout), keyed by the merchant tx ref.</summary>
     Task<TransferResult> InitiateTransferAsync(
-        string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? narration, CancellationToken ct = default);
+        string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? accountName, string? narration, CancellationToken ct = default);
 }

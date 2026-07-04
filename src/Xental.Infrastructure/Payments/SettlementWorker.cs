@@ -202,7 +202,7 @@ public sealed class SettlementWorker(
         db.Transfers.Add(transfer);
         await db.SaveChangesAsync(ct); // reserve the ref before calling the provider
 
-        var result = await nomba.InitiateTransferAsync(merchantRef, amountKobo, destAccountNumber, destBankCode, transfer.Narration, ct);
+        var result = await nomba.InitiateTransferAsync(merchantRef, amountKobo, destAccountNumber, destBankCode, destAccountName, transfer.Narration, ct);
         if (result.Success)
         {
             transfer.MarkSucceeded(result.ProviderReference ?? merchantRef, now);
@@ -261,7 +261,7 @@ public sealed class SettlementWorker(
             await db.SaveChangesAsync(ct); // reserve the leg ref before calling the provider
 
             var result = await nomba.InitiateTransferAsync(merchantRef, leg.AmountKobo,
-                leg.Split.BeneficiaryAccountNumber, leg.Split.BeneficiaryBankCode, transfer.Narration, ct);
+                leg.Split.BeneficiaryAccountNumber, leg.Split.BeneficiaryBankCode, leg.Split.BeneficiaryName, transfer.Narration, ct);
             if (result.Success)
             {
                 transfer.MarkSucceeded(result.ProviderReference ?? merchantRef, now);

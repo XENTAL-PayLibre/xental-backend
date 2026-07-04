@@ -88,7 +88,7 @@ public sealed class NombaClient(
     }
 
     public async Task<TransferResult> InitiateTransferAsync(
-        string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? narration, CancellationToken ct = default)
+        string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? accountName, string? narration, CancellationToken ct = default)
     {
         try
         {
@@ -97,6 +97,7 @@ public sealed class NombaClient(
                 merchantTxRef,
                 amount = amountKobo / 100m, // Nomba expects naira
                 accountNumber,
+                accountName = accountName ?? "", // live Nomba rejects a blank recipient name (422)
                 bankCode,
                 narration = narration ?? "Xental settlement",
                 senderName = "Xental",

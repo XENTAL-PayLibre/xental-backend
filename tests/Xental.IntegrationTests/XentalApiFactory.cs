@@ -136,7 +136,7 @@ internal sealed class FakeNombaClient : INombaClient
         Task.FromResult(new ProvisionedVirtualAccount("1234567890", "Test Bank", accountName, "prov-" + accountRef));
     public Task<BankAccountName> LookupBankAccountAsync(string accountNumber, string bankCode, CancellationToken ct = default) =>
         Task.FromResult(new BankAccountName("Ada Obi", accountNumber, bankCode));
-    public Task<TransferResult> InitiateTransferAsync(string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? narration, CancellationToken ct = default) =>
+    public Task<TransferResult> InitiateTransferAsync(string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? accountName, string? narration, CancellationToken ct = default) =>
         Task.FromResult(new TransferResult(true, "prov-" + merchantTxRef, null));
 }
 
