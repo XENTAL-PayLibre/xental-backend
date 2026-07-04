@@ -97,8 +97,21 @@ public sealed class DevelopersController(
     public async Task<ActionResult<DeveloperProfileResponse>> Me(CancellationToken ct)
     {
         var p = await profiles.GetAsync(tenant.RequireTenantId(), ct);
-        return Ok(new DeveloperProfileResponse(p.TenantId, p.Name, p.Email, p.EmailVerified, p.Status, p.CreatedAtUtc));
+        return Ok(ToResponse(p));
     }
+
+    /// <summary>Set the public brand/product name payers see on checkout and payment instructions.</summary>
+    [Authorize(Policy = AuthPolicies.Dashboard)]
+    [HttpPut("me/brand")]
+    [ProducesResponseType(typeof(DeveloperProfileResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<DeveloperProfileResponse>> SetBrand(SetBrandNameRequest request, CancellationToken ct)
+    {
+        var p = await profiles.SetBrandNameAsync(tenant.RequireTenantId(), request.BrandName, ct);
+        return Ok(ToResponse(p));
+    }
+
+    private static DeveloperProfileResponse ToResponse(DeveloperProfile p) =>
+        new(p.TenantId, p.Name, p.Email, p.BrandName, p.EmailVerified, p.Status, p.CreatedAtUtc);
 
     /// <summary>Magic-link target: verify the account's email, then redirect to the app.</summary>
     /// <response code="302">Redirects to the app with <c>?verified=true|false</c>.</response>

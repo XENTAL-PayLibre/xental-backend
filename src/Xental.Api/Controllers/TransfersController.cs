@@ -14,10 +14,16 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/transfers")]
-[Authorize(Policy = AuthPolicies.Api)]
+[Authorize(Policy = AuthPolicies.ApiOrDashboard)] // reads usable from the dashboard; the payout write stays API-only
 [EnableRateLimiting("api-key")]
 public sealed class TransfersController(TransferService transfers) : ControllerBase
 {
+    /// <summary>List the account's payouts, most recent first.</summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(IEnumerable<TransferResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<IEnumerable<TransferResponse>>> List([FromQuery] int take = 50, CancellationToken ct = default) =>
+        Ok((await transfers.ListAsync(take, ct)).Select(ToResponse));
+
     /// <summary>Resolve the recipient account name before sending (name check).</summary>
     [HttpPost("bank/lookup")]
     [ProducesResponseType(typeof(BankLookupResponse), StatusCodes.Status200OK)]
@@ -27,9 +33,10 @@ public sealed class TransfersController(TransferService transfers) : ControllerB
         return Ok(new BankLookupResponse(r.AccountName, r.AccountNumber, r.BankCode));
     }
 
-    /// <summary>Initiate a bank transfer (idempotent on merchantTxRef).</summary>
+    /// <summary>Initiate a bank transfer (idempotent on merchantTxRef). Moving money out stays API-key only.</summary>
     /// <response code="201">Transfer created/initiated.</response>
     [HttpPost("bank")]
+    [Authorize(Policy = AuthPolicies.Api)]
     [ProducesResponseType(typeof(TransferResponse), StatusCodes.Status201Created)]
     public async Task<ActionResult<TransferResponse>> Create(CreateTransferRequest request, CancellationToken ct)
     {

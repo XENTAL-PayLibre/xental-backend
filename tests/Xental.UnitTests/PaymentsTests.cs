@@ -194,6 +194,7 @@ public class NombaWebhookServiceTests
             new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock),
             new Xental.Infrastructure.Payments.InMemoryReconciliationNotifier(),
             new RuleEngine(ctx, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), db.Clock),
+            new Xental.Application.Billing.BillingService(ctx, db.Tenant, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), new FakeEmailSender(), db.Clock),
             db.Clock);
 
     [Fact]

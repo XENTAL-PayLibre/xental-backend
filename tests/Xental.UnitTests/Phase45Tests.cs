@@ -72,7 +72,9 @@ public class OutboundEmitTests
     private static NombaWebhookService Service(TestDatabase db, Xental.Infrastructure.Persistence.XentalDbContext ctx) =>
         new(ctx, new FakeSignatureVerifier(true), new RiskEvaluator(ctx, db.Clock), new OutboundEventPublisher(ctx, db.Clock),
             new Xental.Infrastructure.Payments.InMemoryReconciliationNotifier(),
-            new RuleEngine(ctx, new OutboundEventPublisher(ctx, db.Clock), db.Clock), db.Clock);
+            new RuleEngine(ctx, new OutboundEventPublisher(ctx, db.Clock), db.Clock),
+            new Xental.Application.Billing.BillingService(ctx, db.Tenant, new OutboundEventPublisher(ctx, db.Clock), new FakeEmailSender(), db.Clock),
+            db.Clock);
 
     [Fact]
     public async Task Reconciled_deposit_queues_a_delivery_for_each_active_endpoint()

@@ -93,6 +93,10 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(AuthPolicies.Api, policy => policy
         .RequireAuthenticatedUser()
         .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Api));
+    // Either plane: an API key OR a dashboard session may read/manage these resources.
+    options.AddPolicy(AuthPolicies.ApiOrDashboard, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim(AuthPolicies.ScopeClaim, AuthPolicies.Api, AuthPolicies.Dashboard));
     // Admin plane: any admin, and the SuperAdmin-only subset (manage admins).
     options.AddPolicy(AuthPolicies.Admin, policy => policy
         .RequireAuthenticatedUser()
@@ -172,6 +176,23 @@ builder.Services.AddCors(options => options.AddPolicy("frontend", policy =>
 // Health checks: liveness (/health, always) + readiness (/ready, DB-gated).
 builder.Services.AddHealthChecks()
     .AddCheck<Xental.Api.Health.DatabaseReadyCheck>("database", tags: ["ready"]);
+
+// --- OpenTelemetry (metrics + traces via OTLP) ---------------------------
+// Enabled only when an OTLP endpoint is configured (set by the deploy when a
+// monitoring host exists). Service name comes from OTEL_SERVICE_NAME env.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+{
+    builder.Services.AddOpenTelemetry()
+        .WithMetrics(m => m
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddOtlpExporter())
+        .WithTracing(t => t
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddOtlpExporter());
+}
 
 // --- OpenTelemetry (metrics + traces via OTLP) ---------------------------
 // Enabled only when an OTLP endpoint is configured (set by the deploy when a

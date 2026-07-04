@@ -35,9 +35,14 @@ public sealed record DeveloperProfileResponse(
     Guid TenantId,
     string Name,
     string Email,
+    string? BrandName,
     bool EmailVerified,
     string Status,
     DateTimeOffset CreatedAtUtc);
+
+/// <summary>Set the public brand/product name payers see (checkout, payment instructions).</summary>
+public sealed record SetBrandNameRequest(
+    [MaxLength(120)] string? BrandName);
 
 public sealed record ForgotPasswordRequest(
     [Required, EmailAddress] string Email);
@@ -310,9 +315,52 @@ public sealed record CheckoutSnapshotResponse(
     string AccountNumber,
     string BankName,
     string AccountName,
+    string Brand,
     string PaymentState,
     long AmountPaidKobo,
     long? ExpectedAmountKobo);
+
+// ---- Recurring billing (push model) ----
+
+/// <summary>Create a recurring-billing schedule on a reusable virtual account.</summary>
+public sealed record CreateBillingScheduleRequest(
+    [Required] string AccountRef,
+    /// <summary>Weekly | Monthly | Quarterly | Yearly.</summary>
+    [Required] string Interval,
+    [Range(1, long.MaxValue)] long AmountKobo,
+    [Range(0, 3650)] int DueOffsetDays = 0,
+    [MaxLength(200)] string? Description = null,
+    [MaxLength(100)] string? Reference = null);
+
+/// <summary>Set the expected amount for the next cycle (variable billing).</summary>
+public sealed record SetNextAmountRequest(
+    [Range(1, long.MaxValue)] long AmountKobo);
+
+public sealed record BillingScheduleResponse(
+    Guid Id,
+    string Reference,
+    string AccountRef,
+    string Interval,
+    string Status,
+    long NextAmountKobo,
+    int DueOffsetDays,
+    int PeriodsGenerated,
+    long CarryCreditKobo,
+    DateTimeOffset? CurrentPeriodEndUtc,
+    string? Description,
+    DateTimeOffset CreatedAtUtc);
+
+public sealed record BillingPeriodResponse(
+    Guid Id,
+    int Sequence,
+    string Status,
+    long ExpectedAmountKobo,
+    long AmountAttributedKobo,
+    long OutstandingKobo,
+    DateTimeOffset PeriodStartUtc,
+    DateTimeOffset PeriodEndUtc,
+    DateTimeOffset DueDateUtc,
+    DateTimeOffset? PaidAtUtc);
 
 // ---- Split & Escrow settlement (differentiator) ----
 public sealed record SplitLegRequest(

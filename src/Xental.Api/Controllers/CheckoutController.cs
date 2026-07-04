@@ -29,12 +29,13 @@ public sealed class CheckoutController(
     {
         var ttl = request.TtlSeconds is int s ? TimeSpan.FromSeconds(s) : (TimeSpan?)null;
         var (session, account) = await checkout.CreateSessionAsync(request.AccountRef, ttl, ct);
+        var brand = await checkout.ResolveBrandAsync(account, ct);
         var response = new CheckoutSessionResponse(
             session.Token,
             $"/api/v1/checkout/{session.Token}",
             $"/api/v1/checkout/{session.Token}/stream",
             session.ExpiresAtUtc,
-            ToSnapshot(CheckoutService.Snapshot(account)));
+            ToSnapshot(CheckoutService.Snapshot(account, brand)));
         return Created(response.SnapshotUrl, response);
     }
 
@@ -47,7 +48,9 @@ public sealed class CheckoutController(
     public async Task<ActionResult<CheckoutSnapshotResponse>> Snapshot(string token, CancellationToken ct)
     {
         var resolved = await checkout.ResolveAsync(token, ct);
-        return resolved is null ? NotFound() : Ok(ToSnapshot(CheckoutService.Snapshot(resolved.Value.Account)));
+        if (resolved is null) return NotFound();
+        var brand = await checkout.ResolveBrandAsync(resolved.Value.Account, ct);
+        return Ok(ToSnapshot(CheckoutService.Snapshot(resolved.Value.Account, brand)));
     }
 
     /// <summary>
@@ -65,19 +68,20 @@ public sealed class CheckoutController(
             return;
         }
         var (_, account) = resolved.Value;
+        var brand = await checkout.ResolveBrandAsync(account, ct);
 
         Response.Headers.ContentType = "text/event-stream";
         Response.Headers.CacheControl = "no-cache";
         Response.Headers["X-Accel-Buffering"] = "no"; // don't let a reverse proxy buffer the stream
 
         // Initial snapshot so a late subscriber sees current state immediately.
-        await WriteSseAsync(ToSnapshot(CheckoutService.Snapshot(account)), ct);
+        await WriteSseAsync(ToSnapshot(CheckoutService.Snapshot(account, brand)), ct);
 
         try
         {
             await foreach (var evt in notifier.SubscribeAsync(account.Id, ct))
                 await WriteSseAsync(new CheckoutSnapshotResponse(
-                    evt.AccountRef, account.AccountNumber, account.BankName, account.AccountName,
+                    evt.AccountRef, account.AccountNumber, account.BankName, account.AccountName, brand,
                     evt.PaymentState, evt.AmountPaidKobo, evt.ExpectedAmountKobo), ct);
         }
         catch (OperationCanceledException) { /* client disconnected */ }
@@ -90,6 +94,6 @@ public sealed class CheckoutController(
     }
 
     private static CheckoutSnapshotResponse ToSnapshot(CheckoutSnapshot s) => new(
-        s.AccountRef, s.AccountNumber, s.BankName, s.AccountName,
+        s.AccountRef, s.AccountNumber, s.BankName, s.AccountName, s.Brand,
         s.PaymentState, s.AmountPaidKobo, s.ExpectedAmountKobo);
 }

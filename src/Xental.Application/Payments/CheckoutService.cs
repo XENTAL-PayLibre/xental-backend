@@ -12,6 +12,7 @@ public sealed record CheckoutSnapshot(
     string AccountNumber,
     string BankName,
     string AccountName,
+    string Brand,
     string PaymentState,
     long AmountPaidKobo,
     long? ExpectedAmountKobo);
@@ -54,9 +55,28 @@ public sealed class CheckoutService(IApplicationDbContext db, ITenantContext ten
         return account is null ? null : (session, account);
     }
 
-    public static CheckoutSnapshot Snapshot(VirtualAccount a) => new(
-        a.Reference, a.AccountNumber, a.BankName, a.AccountName,
+    public static CheckoutSnapshot Snapshot(VirtualAccount a, string brand) => new(
+        a.Reference, a.AccountNumber, a.BankName, a.AccountName, brand,
         a.PaymentState.ToString(), a.AmountPaidKobo, a.ExpectedAmountKobo);
+
+    /// <summary>Resolve the brand payers should see for an account: the sub-merchant's name if the
+    /// account is routed to one, otherwise the tenant's configured brand (falling back to its name).
+    /// Runs on the anonymous checkout path, so it ignores tenant query filters.</summary>
+    public async Task<string> ResolveBrandAsync(VirtualAccount a, CancellationToken ct = default)
+    {
+        if (a.SubMerchantId is { } subId)
+        {
+            var subName = await db.SubMerchants.IgnoreQueryFilters().AsNoTracking()
+                .Where(s => s.Id == subId).Select(s => s.Name).FirstOrDefaultAsync(ct);
+            if (!string.IsNullOrWhiteSpace(subName))
+                return subName!;
+        }
+        var tenant = await db.Tenants.IgnoreQueryFilters().AsNoTracking()
+            .Where(t => t.Id == a.TenantId).Select(t => new { t.Name, t.BrandName }).FirstOrDefaultAsync(ct);
+        return tenant is null
+            ? a.AccountName
+            : (string.IsNullOrWhiteSpace(tenant.BrandName) ? tenant.Name : tenant.BrandName!);
+    }
 
     private static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');

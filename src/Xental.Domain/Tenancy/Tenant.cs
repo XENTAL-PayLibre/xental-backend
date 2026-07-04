@@ -18,9 +18,14 @@ public sealed class Tenant : BaseEntity
 {
     public string Name { get; private set; } = null!;
     public string Email { get; private set; } = null!;
+    /// <summary>Public brand/product name shown to payers (checkout, instructions). Falls back to Name.</summary>
+    public string? BrandName { get; private set; }
     public string? PasswordHash { get; private set; }
     public bool EmailVerified { get; private set; }
     public TenantStatus Status { get; private set; }
+
+    /// <summary>The name to show payers — the configured brand, or the account name if unset.</summary>
+    public string DisplayBrand => string.IsNullOrWhiteSpace(BrandName) ? Name : BrandName!;
 
     private Tenant() { } // EF
 
@@ -38,6 +43,9 @@ public sealed class Tenant : BaseEntity
 
     public void SetPassword(string passwordHash) =>
         PasswordHash = DomainException.Require(passwordHash, nameof(passwordHash));
+
+    public void SetBrandName(string? brandName) =>
+        BrandName = string.IsNullOrWhiteSpace(brandName) ? null : brandName.Trim();
 
     public void MarkEmailVerified() => EmailVerified = true;
 

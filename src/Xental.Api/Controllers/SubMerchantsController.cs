@@ -14,7 +14,7 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/sub-merchants")]
-[Authorize(Policy = AuthPolicies.Api)]
+[Authorize(Policy = AuthPolicies.ApiOrDashboard)] // manage sub-merchants from an API key or the dashboard
 public sealed class SubMerchantsController(SubMerchantService subMerchants) : ControllerBase
 {
     /// <summary>Create a sub-merchant under the current account.</summary>

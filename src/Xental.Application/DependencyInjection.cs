@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<Payments.MoneyRuleService>();
         services.AddScoped<Payments.SandboxSimulationService>();
         services.AddScoped<Payments.CheckoutService>();
+        services.AddScoped<Billing.BillingService>();
         services.AddScoped<Onboarding.OnboardingService>();
         services.AddScoped<Onboarding.DeveloperKycService>();
         services.AddScoped<Onboarding.BusinessKybService>();
