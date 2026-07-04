@@ -60,6 +60,11 @@ public sealed class SettlementWorker(
 
         foreach (var account in due)
         {
+            // Simulated (test-mode) NUBANs are credited by the sandbox simulator but hold no real
+            // money — never initiate a real payout for them.
+            if (account.ProviderAccountId is not null && account.ProviderAccountId.StartsWith("sandbox-", StringComparison.Ordinal))
+                continue;
+
             // Escrow (Feature 1): an active hold parks the funds — skip until it is released.
             var held = await db.EscrowHolds.IgnoreQueryFilters()
                 .AnyAsync(e => e.VirtualAccountId == account.Id && e.State == EscrowState.Held, ct);
