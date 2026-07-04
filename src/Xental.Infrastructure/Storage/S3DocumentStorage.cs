@@ -14,21 +14,30 @@ public sealed class S3DocumentStorage : IDocumentStorage
 {
     private readonly IAmazonS3 _s3;
     private readonly StorageOptions _options;
+    private readonly bool _disablePayloadSigning;
 
     public S3DocumentStorage(IOptions<StorageOptions> options)
     {
         _options = options.Value;
         var config = new AmazonS3Config { AuthenticationRegion = _options.Region };
+        var endpointIsHttps = true; // real S3 is always HTTPS
         if (!string.IsNullOrWhiteSpace(_options.Endpoint))
         {
             // MinIO / S3-compatible: talk to the custom endpoint with path-style addressing.
             config.ServiceURL = _options.Endpoint;
             config.ForcePathStyle = true;
+            endpointIsHttps = _options.Endpoint.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
         }
         else
         {
             config.RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(_options.Region);
         }
+
+        // Skipping chunked payload signing helps some S3-compatible stores, but the AWS SDK only
+        // permits it over HTTPS. On a plain-HTTP endpoint (e.g. in-cluster MinIO) fall back to normal
+        // signing — otherwise the signer throws "must be sent over HTTPS".
+        _disablePayloadSigning = _options.IsMinio && endpointIsHttps;
+
         _s3 = new AmazonS3Client(_options.AccessKey, _options.SecretKey, config);
     }
 
@@ -43,7 +52,7 @@ public sealed class S3DocumentStorage : IDocumentStorage
             Key = objectKey,
             InputStream = content,
             ContentType = contentType,
-            DisablePayloadSigning = _options.IsMinio, // MinIO doesn't require chunked payload signing
+            DisablePayloadSigning = _disablePayloadSigning,
         }, ct);
     }
 
