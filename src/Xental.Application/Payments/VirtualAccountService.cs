@@ -18,7 +18,7 @@ public sealed class VirtualAccountService(
 {
     public async Task<VirtualAccount> CreateAsync(
         string accountRef, string name, string? email, string? phone,
-        long? expectedAmountKobo, DateTimeOffset? expiryDateUtc, string? subMerchantRef, CancellationToken ct = default)
+        long? expectedAmountKobo, DateTimeOffset? expiryDateUtc, string? subMerchantRef, bool testMode, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(accountRef))
             throw new ValidationException("accountRef is required.");
@@ -51,7 +51,12 @@ public sealed class VirtualAccountService(
             db.Customers.Add(customer);
         }
 
-        var provisioned = await nomba.CreateVirtualAccountAsync(reference, name.Trim(), email, phone, ct);
+        // Test-mode keys mint a simulated NUBAN locally — no real provider call. This keeps sandbox
+        // provisioning unlimited (Nomba's sandbox caps virtual accounts per account holder) and free of
+        // any upstream dependency; the sandbox deposit simulator credits these exactly like live ones.
+        var provisioned = testMode
+            ? await SimulateNubanAsync(reference, name.Trim(), ct)
+            : await nomba.CreateVirtualAccountAsync(reference, name.Trim(), email, phone, ct);
 
         var account = new VirtualAccount(
             tenantId, customer.Id, reference,
@@ -61,6 +66,18 @@ public sealed class VirtualAccountService(
 
         await db.SaveChangesAsync(ct);
         return account;
+    }
+
+    /// <summary>Allocate a unique, sandbox-only NUBAN (99-prefixed) without calling the provider.</summary>
+    private async Task<ProvisionedVirtualAccount> SimulateNubanAsync(string reference, string name, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            var number = "99" + Random.Shared.NextInt64(0, 100_000_000).ToString("D8");
+            if (!await db.VirtualAccounts.IgnoreQueryFilters().AnyAsync(v => v.AccountNumber == number, ct))
+                return new ProvisionedVirtualAccount(number, "Xental Sandbox Bank", name, $"sandbox-{reference}");
+        }
+        throw new ValidationException("Could not allocate a sandbox account number. Please retry.");
     }
 
     public async Task<VirtualAccount> GetByReferenceAsync(string accountRef, CancellationToken ct = default)
