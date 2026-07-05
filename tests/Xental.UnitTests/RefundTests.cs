@@ -123,6 +123,33 @@ public class RefundTests
     }
 
     [Fact]
+    public async Task Refund_on_a_test_mode_account_is_simulated_and_never_calls_the_provider()
+    {
+        using var db = new TestDatabase();
+        await using var ctx = db.CreateContext();
+        var t = new Tenant("Acme", $"a-{Guid.NewGuid():N}@x.com", "h");
+        ctx.Tenants.Add(t);
+        var c = new Customer(t.Id, "cust-1", "Payer", "payer@x.com");
+        ctx.Customers.Add(c);
+        // sandbox-* provider id => test-mode account holding no real money.
+        var va = new VirtualAccount(t.Id, c.Id, "acct-1", "9912345678", "Xental Sandbox Bank", "Payer",
+            providerAccountId: "sandbox-acct-1", expectedAmountKobo: 500_00);
+        va.ApplyInflow(Money.FromKobo(800_00));
+        ctx.VirtualAccounts.Add(va);
+        ctx.Transactions.Add(new Transaction(t.Id, va.Id, "dep-1", "Payer", Money.FromKobo(800_00), Money.Zero,
+            TransactionStatus.Success, ReconciliationStatus.Overpaid, TransactionFlag.Overpaid, db.Clock.UtcNow, db.Clock.UtcNow,
+            0, "3107560763", "011"));
+        await ctx.SaveChangesAsync();
+        db.Tenant.TenantId = t.Id;
+
+        // Provider would FAIL — but a sandbox refund must not call it at all, so it still succeeds.
+        var result = await Make(ctx, db, nomba: new FakeNombaClient { TransferSucceeds = false })
+            .RefundOverpaymentAsync("dep-1", null);
+        result.Status.Should().Be("refunded");
+        result.ProviderReference.Should().StartWith("sandbox-refund-");
+    }
+
+    [Fact]
     public async Task Refund_on_a_billing_account_draws_from_carry_credit()
     {
         using var db = new TestDatabase();

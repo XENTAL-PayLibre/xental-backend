@@ -88,8 +88,12 @@ public sealed class RefundService(
         }
         await db.SaveChangesAsync(ct); // reserve the ref before calling the provider
 
-        var result = await nomba.InitiateTransferAsync(
-            merchantRef, transfer.AmountKobo, destAccount, destBank, destName, transfer.Narration, ct);
+        // Test-mode (sandbox) accounts are credited by the simulator and hold NO real money — never
+        // initiate a real payout for them; simulate the refund so the flow works without moving funds.
+        var isSandbox = account.ProviderAccountId is { } p && p.StartsWith("sandbox-", StringComparison.Ordinal);
+        var result = isSandbox
+            ? new TransferResult(true, "sandbox-refund-" + merchantRef, null)
+            : await nomba.InitiateTransferAsync(merchantRef, transfer.AmountKobo, destAccount, destBank, destName, transfer.Narration, ct);
         if (!result.Success)
         {
             transfer.MarkFailed(result.FailureReason ?? "refund failed", clock.UtcNow);
