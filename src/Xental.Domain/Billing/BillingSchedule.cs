@@ -139,4 +139,13 @@ public sealed class BillingSchedule : BaseEntity, ITenantOwned
         AttributedUpToKobo = Math.Max(0, attributedUpToKobo);
         CarryCreditKobo = Math.Max(0, leftoverCreditKobo);
     }
+
+    /// <summary>Draw a refunded overpayment out of the carried-forward credit so it does not pre-pay the
+    /// next cycle. Returns the amount actually removed (bounded by the available carry).</summary>
+    public long ReduceCarry(long kobo)
+    {
+        var removed = Math.Min(Math.Max(0, kobo), CarryCreditKobo);
+        CarryCreditKobo -= removed;
+        return removed;
+    }
 }

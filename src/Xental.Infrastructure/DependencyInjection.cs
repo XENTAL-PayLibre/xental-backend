@@ -132,6 +132,9 @@ public static class DependencyInjection
         // Live Checkout: in-process reconciliation pub/sub feeding the SSE streams.
         services.AddSingleton<IReconciliationNotifier, Payments.InMemoryReconciliationNotifier>();
 
+        // Manual refunds honour the same payout kill-switch as the settlement sweep.
+        services.AddSingleton<IPayoutSwitch, Payments.SettlementPayoutSwitch>();
+
         return services;
     }
 }

@@ -119,7 +119,8 @@ public sealed class NombaWebhookService(
 
         var txn = new Transaction(
             account.TenantId, account.Id, inflow.Reference, inflow.TransferName,
-            gross, fee, TransactionStatus.Success, reconciliation, reason, occurred, now, riskScore);
+            gross, fee, TransactionStatus.Success, reconciliation, reason, occurred, now, riskScore,
+            inflow.SenderAccountNumber, inflow.SenderBankCode);
         db.Transactions.Add(txn);
 
         // Enqueue enriched outbound events (delivered async by the worker), in the same tx.
