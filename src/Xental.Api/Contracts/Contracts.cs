@@ -162,8 +162,20 @@ public sealed record TransactionResponse(
     string? Reason,
     int RiskScore,
     string? TransferName,
+    string? SenderAccountNumber,
+    string? SenderBankCode,
     DateTimeOffset OccurredAtUtc,
     DateTimeOffset? ReconciledAtUtc);
+
+/// <summary>Refund an overpayment. All fields optional — omit to refund the payer's captured source account.</summary>
+public sealed record RefundOverpaymentRequest(
+    [StringLength(20)] string? AccountNumber,
+    [StringLength(16)] string? BankCode,
+    [StringLength(200)] string? AccountName);
+
+public sealed record RefundResponse(
+    string Status, string TransferRef, long AmountKobo,
+    string DestinationAccountNumber, string DestinationBankCode, string? ProviderReference);
 
 // ---- Transfers / payouts (Phase 5) ----
 public sealed record BankLookupRequest(

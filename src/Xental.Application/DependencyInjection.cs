@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<Payments.RiskEvaluator>();
         services.AddScoped<Payments.TransactionQueryService>();
         services.AddScoped<Payments.TransferService>();
+        services.AddScoped<Payments.RefundService>();
         services.AddScoped<Payments.InsightsService>();
         services.AddScoped<Payments.SettlementConfigService>();
         services.AddScoped<Payments.SplitSettlementService>();

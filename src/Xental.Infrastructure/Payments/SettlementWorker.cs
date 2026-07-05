@@ -86,7 +86,13 @@ public sealed class SettlementWorker(
             var reversed = await db.Transactions.IgnoreQueryFilters()
                 .Where(t => t.VirtualAccountId == account.Id && t.Reconciliation == ReconciliationStatus.Reversed)
                 .SumAsync(t => (long?)t.NetCreditKobo, ct) ?? 0;
-            var net = credited - reversed;
+            // Overpayment refunds already sent (or in flight) back to the payer must not also be settled
+            // to the merchant — subtract them so the same surplus is never paid out twice.
+            var refundPrefix = $"refund-{account.Id:N}-";
+            var refunded = await db.Transfers.IgnoreQueryFilters()
+                .Where(t => t.MerchantTxRef.StartsWith(refundPrefix) && t.Status != TransferStatus.Failed)
+                .SumAsync(t => (long?)t.AmountKobo, ct) ?? 0;
+            var net = credited - reversed - refunded;
             var unsettled = account.UnsettledKobo(net);
             if (unsettled <= 0)
                 continue;

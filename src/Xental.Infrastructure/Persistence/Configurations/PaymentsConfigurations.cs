@@ -59,6 +59,8 @@ public sealed class TransactionConfiguration : IEntityTypeConfiguration<Transact
         b.Property(x => x.NombaReference).IsRequired().HasMaxLength(128);
         b.HasIndex(x => x.NombaReference).IsUnique(); // idempotency: same reference => duplicate
         b.Property(x => x.TransferName).HasMaxLength(200);
+        b.Property(x => x.SenderAccountNumber).HasMaxLength(20);
+        b.Property(x => x.SenderBankCode).HasMaxLength(16);
         b.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
         b.Property(x => x.Reconciliation).HasConversion<string>().HasMaxLength(20);
         b.Property(x => x.Reason).HasConversion<string>().HasMaxLength(24);

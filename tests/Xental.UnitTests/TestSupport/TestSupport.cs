@@ -62,6 +62,11 @@ public sealed class FakeTenantContext : ITenantContext
     public Guid RequireTenantId() => TenantId ?? throw new InvalidOperationException("No tenant.");
 }
 
+public sealed class FakePayoutSwitch : IPayoutSwitch
+{
+    public bool PayoutsEnabled { get; set; } = true;
+}
+
 /// <summary>Records operational alerts so tests can assert they fired.</summary>
 public sealed class FakeAlerter : IErrorAlerter
 {

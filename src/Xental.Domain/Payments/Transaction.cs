@@ -23,6 +23,8 @@ public sealed class Transaction : BaseEntity
     public Guid? VirtualAccountId { get; private set; }      // dedicated_account_id
     public string NombaReference { get; private set; } = null!;
     public string? TransferName { get; private set; }        // original name on the transfer
+    public string? SenderAccountNumber { get; private set; } // payer's source account (pre-fills overpayment refunds)
+    public string? SenderBankCode { get; private set; }
     public long AmountKobo { get; private set; }             // gross received (what the payer sent)
     public long FeeKobo { get; private set; }
     public long NetCreditKobo { get; private set; }          // credited to the merchant = amount - fee
@@ -39,12 +41,15 @@ public sealed class Transaction : BaseEntity
     public Transaction(
         Guid? tenantId, Guid? virtualAccountId, string nombaReference, string? transferName,
         Money amount, Money fee, TransactionStatus status, ReconciliationStatus reconciliation,
-        TransactionFlag? reason, DateTimeOffset occurredAtUtc, DateTimeOffset? reconciledAtUtc, int riskScore = 0)
+        TransactionFlag? reason, DateTimeOffset occurredAtUtc, DateTimeOffset? reconciledAtUtc, int riskScore = 0,
+        string? senderAccountNumber = null, string? senderBankCode = null)
     {
         NombaReference = DomainException.Require(nombaReference, nameof(nombaReference));
         TenantId = tenantId;
         VirtualAccountId = virtualAccountId;
         TransferName = string.IsNullOrWhiteSpace(transferName) ? null : transferName.Trim();
+        SenderAccountNumber = string.IsNullOrWhiteSpace(senderAccountNumber) ? null : senderAccountNumber.Trim();
+        SenderBankCode = string.IsNullOrWhiteSpace(senderBankCode) ? null : senderBankCode.Trim();
         AmountKobo = amount.Kobo;
         FeeKobo = fee.Kobo;
         NetCreditKobo = Math.Max(0, amount.Kobo - fee.Kobo);

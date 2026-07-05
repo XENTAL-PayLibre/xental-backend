@@ -11,7 +11,9 @@ public sealed record NombaInflow(
     long FeeKobo,
     string? TransferName,
     string EventType,
-    DateTimeOffset OccurredAtUtc)
+    DateTimeOffset OccurredAtUtc,
+    string? SenderAccountNumber = null,
+    string? SenderBankCode = null)
 {
     public bool IsReversal => EventType.Contains("revers", StringComparison.OrdinalIgnoreCase);
 }
@@ -44,13 +46,21 @@ public static class NombaWebhookParser
             var feeKobo = Kobo(txn, "fee") ?? Kobo(txn, "transactionFee") ?? 0;
             var transferName = Str(txn, "senderName") ?? Str(txn, "originatorName") ?? Str(txn, "payerName")
                                ?? Str(customer, "senderName") ?? Str(customer, "name");
+            // Payer's source account — used to pre-fill an overpayment refund destination. Best-effort:
+            // present on NIP-originated inflows; absent otherwise (the refund flow then asks for it).
+            var senderAccount = Str(txn, "senderAccountNumber") ?? Str(txn, "sender_account_number")
+                                ?? Str(txn, "originatorAccountNumber") ?? Str(txn, "payerAccountNumber")
+                                ?? Str(txn, "sourceAccountNumber") ?? Str(customer, "senderAccountNumber");
+            var senderBank = Str(txn, "senderBankCode") ?? Str(txn, "sender_bank_code")
+                             ?? Str(txn, "originatorBankCode") ?? Str(txn, "payerBankCode")
+                             ?? Str(txn, "sourceBankCode") ?? Str(txn, "senderBank");
             var occurred = Time(txn, "time") ?? Time(txn, "transactionTime");
 
             if (string.IsNullOrWhiteSpace(reference) || amountKobo is not > 0)
                 return false;
 
             inflow = new NombaInflow(reference!, accountNumber ?? string.Empty, amountKobo.Value, feeKobo,
-                transferName, eventType, occurred ?? DateTimeOffset.UnixEpoch);
+                transferName, eventType, occurred ?? DateTimeOffset.UnixEpoch, senderAccount, senderBank);
             return true;
         }
         catch

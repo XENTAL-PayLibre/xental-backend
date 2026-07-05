@@ -16,7 +16,7 @@ namespace Xental.Api.Controllers;
 [Route("api/v1/transactions")]
 [Authorize(Policy = AuthPolicies.ApiOrDashboard)] // read-only ledger — usable from the dashboard too
 [EnableRateLimiting("api-key")]
-public sealed class TransactionsController(TransactionQueryService transactions) : ControllerBase
+public sealed class TransactionsController(TransactionQueryService transactions, RefundService refunds) : ControllerBase
 {
     /// <summary>List transactions, filtered by date range, status, reconciliation, or accountRef.</summary>
     [HttpGet]
@@ -40,8 +40,26 @@ public sealed class TransactionsController(TransactionQueryService transactions)
         return Ok(ToResponse(t));
     }
 
+    /// <summary>Refund an overpayment surplus back to the payer (dashboard Owner/Admin). Sends only the
+    /// amount still held for the account; releases any overpayment hold on success. Idempotent per deposit.</summary>
+    /// <response code="200">Refund sent (or already sent).</response>
+    /// <response code="400">No refundable surplus, nothing available (already settled), or missing destination.</response>
+    /// <response code="409">A refund for this deposit is already in progress.</response>
+    [HttpPost("{reference}/refund")]
+    [Authorize(Policy = AuthPolicies.ManageSettings)] // money-out — dashboard Owner/Admin only
+    [ProducesResponseType(typeof(RefundResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RefundResponse>> Refund(string reference, RefundOverpaymentRequest? request, CancellationToken ct)
+    {
+        var dest = request is null ? null : new RefundDestination(request.AccountNumber, request.BankCode, request.AccountName);
+        var r = await refunds.RefundOverpaymentAsync(reference, dest, ct);
+        return Ok(new RefundResponse(r.Status, r.TransferRef, r.AmountKobo, r.DestinationAccountNumber, r.DestinationBankCode, r.ProviderReference));
+    }
+
     private static TransactionResponse ToResponse(Transaction t) => new(
         t.Id, t.NombaReference, t.VirtualAccountId, t.AmountKobo, t.FeeKobo, t.NetCreditKobo,
         t.Status.ToString(), t.Reconciliation.ToString(), t.Reason?.ToString(), t.RiskScore,
-        t.TransferName, t.OccurredAtUtc, t.ReconciledAtUtc);
+        t.TransferName, t.SenderAccountNumber, t.SenderBankCode, t.OccurredAtUtc, t.ReconciledAtUtc);
 }
