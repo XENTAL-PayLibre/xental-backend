@@ -24,6 +24,14 @@ public static class AuthPolicies
     /// <summary>Mutate billing schedules: an API key (integrator), or a dashboard Owner/Admin — not an Employee.</summary>
     public const string ManageBilling = "manage-billing";
 
+    /// <summary>Provision / operate resources from either plane: an API key, or a dashboard
+    /// Owner/Admin/Developer. Used for DVA provisioning, checkout sessions, and the sandbox.</summary>
+    public const string Provision = "provision";
+
+    /// <summary>Move money from either plane: an API key, or a dashboard Owner/Admin (never Employee).
+    /// Used for transfers, refunds, and escrow hold/release.</summary>
+    public const string MovePayouts = "move-payouts";
+
     public const string ScopeClaim = "scope";
     public const string AdminRoleClaim = "admin_role";
     public const string RoleClaim = "team_role";
