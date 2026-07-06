@@ -46,6 +46,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 // Current-tenant resolution from the JWT.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, TenantContext>();
+builder.Services.AddScoped<IModeContext, ModeContext>();
 builder.Services.AddScoped<IAdminContext, AdminContext>();
 
 // Writes the HttpOnly+Secure dashboard session cookies.
@@ -124,18 +125,30 @@ builder.Services.AddAuthorization(options =>
     // dashboard Employee. Reads stay on the broader ApiOrDashboard policy.
     options.AddPolicy(AuthPolicies.ManageBilling, policy => policy
         .RequireAuthenticatedUser()
-        .RequireAssertion(ctx =>
-        {
-            var scope = ctx.User.FindFirst(AuthPolicies.ScopeClaim)?.Value;
-            if (scope == AuthPolicies.Api) return true;
-            if (scope == AuthPolicies.Dashboard)
-            {
-                var role = ctx.User.FindFirst(AuthPolicies.RoleClaim)?.Value;
-                return role is "Owner" or "Admin";
-            }
-            return false;
-        }));
+        .RequireAssertion(ctx => ApiOrDashboardRole(ctx, "Owner", "Admin")));
+
+    // Provisioning / operating resources from either plane: API key OR dashboard Owner/Admin/Developer.
+    options.AddPolicy(AuthPolicies.Provision, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAssertion(ctx => ApiOrDashboardRole(ctx, "Owner", "Admin", "Developer")));
+
+    // Moving money from either plane: API key OR dashboard Owner/Admin (never Employee).
+    options.AddPolicy(AuthPolicies.MovePayouts, policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAssertion(ctx => ApiOrDashboardRole(ctx, "Owner", "Admin")));
 });
+
+// A hybrid gate: an API-plane token always passes; a dashboard token passes only with one of the
+// given team roles. Lets one endpoint serve both the API and the dashboard without an Employee
+// reaching money/provisioning actions.
+static bool ApiOrDashboardRole(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext ctx, params string[] roles)
+{
+    var scope = ctx.User.FindFirst(AuthPolicies.ScopeClaim)?.Value;
+    if (scope == AuthPolicies.Api) return true;
+    if (scope == AuthPolicies.Dashboard)
+        return roles.Contains(ctx.User.FindFirst(AuthPolicies.RoleClaim)?.Value);
+    return false;
+}
 
 // TLS is terminated at Traefik; trust its X-Forwarded-* so the real client IP/scheme
 // are used (needed for correct rate-limit partitioning and HTTPS awareness).

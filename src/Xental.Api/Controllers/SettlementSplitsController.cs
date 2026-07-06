@@ -43,7 +43,7 @@ public sealed class SettlementSplitsController(SplitSettlementService splits) : 
 /// </summary>
 [ApiController]
 [Route("api/v1/settlements")]
-[Authorize(Policy = AuthPolicies.Api)]
+[Authorize(Policy = AuthPolicies.MovePayouts)] // escrow control — API key or dashboard Owner/Admin
 public sealed class SettlementsController(SplitSettlementService splits) : ControllerBase
 {
     /// <summary>Place an escrow hold on an account so it is not settled until released.</summary>

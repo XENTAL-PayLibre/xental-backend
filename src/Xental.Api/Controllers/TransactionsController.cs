@@ -46,7 +46,7 @@ public sealed class TransactionsController(TransactionQueryService transactions,
     /// <response code="400">No refundable surplus, nothing available (already settled), or missing destination.</response>
     /// <response code="409">A refund for this deposit is already in progress.</response>
     [HttpPost("{reference}/refund")]
-    [Authorize(Policy = AuthPolicies.ManageSettings)] // money-out — dashboard Owner/Admin only
+    [Authorize(Policy = AuthPolicies.MovePayouts)] // money-out — API key or dashboard Owner/Admin
     [ProducesResponseType(typeof(RefundResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

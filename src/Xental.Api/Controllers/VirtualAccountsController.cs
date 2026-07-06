@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Xental.Api.Authorization;
 using Xental.Api.Contracts;
+using Xental.Application.Common.Interfaces;
 using Xental.Application.Payments;
 using Xental.Domain.Payments;
 
@@ -14,8 +15,8 @@ namespace Xental.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1/virtual-accounts")]
-[Authorize(Policy = AuthPolicies.ApiOrDashboard)] // reads usable from the dashboard; provisioning stays API-only
-public sealed class VirtualAccountsController(VirtualAccountService accounts) : ControllerBase
+[Authorize(Policy = AuthPolicies.ApiOrDashboard)] // reads usable from either plane
+public sealed class VirtualAccountsController(VirtualAccountService accounts, IModeContext mode) : ControllerBase
 {
     /// <summary>List the tenant's virtual accounts (optionally scoped to a sub-merchant).</summary>
     [HttpGet]
@@ -24,18 +25,21 @@ public sealed class VirtualAccountsController(VirtualAccountService accounts) : 
         [FromQuery] string? subMerchantRef, [FromQuery] int take = 50, CancellationToken ct = default) =>
         Ok((await accounts.ListAsync(subMerchantRef, take, ct)).Select(ToResponse));
 
-    /// <summary>Provision a persistent NUBAN for a customer. Provisioning stays API-key only (key mode
-    /// decides test/live).</summary>
+    /// <summary>Provision a persistent NUBAN for a customer. Callable from an API key or the dashboard
+    /// (Owner/Admin/Developer). Mode is the API key's key_mode, or — on the dashboard — the
+    /// <c>X-Xental-Mode</c> header (default test; live requires approved onboarding).</summary>
     /// <response code="201">Provisioned; body carries the NUBAN + reconciliation state.</response>
+    /// <response code="403">Live requested from the dashboard without approved onboarding.</response>
     /// <response code="409">A virtual account already exists for this accountRef.</response>
     [HttpPost]
-    [Authorize(Policy = AuthPolicies.Api)]
+    [Authorize(Policy = AuthPolicies.Provision)]
     [ProducesResponseType(typeof(VirtualAccountResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<VirtualAccountResponse>> Create(CreateVirtualAccountRequest request, CancellationToken ct)
     {
-        // Anything that isn't an explicit live key provisions a simulated sandbox NUBAN.
-        var testMode = !string.Equals(User.FindFirst("key_mode")?.Value, "live", StringComparison.OrdinalIgnoreCase);
+        // Live only in live mode (live API key, or dashboard live with approved onboarding); else sandbox.
+        var testMode = !await mode.IsLiveAsync(ct);
         var va = await accounts.CreateAsync(
             request.AccountRef, request.Name, request.Email, request.Phone,
             request.ExpectedAmountKobo, request.ExpiryDateUtc, request.SubMerchantRef, testMode, ct);

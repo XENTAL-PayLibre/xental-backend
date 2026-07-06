@@ -33,10 +33,11 @@ public sealed class TransfersController(TransferService transfers) : ControllerB
         return Ok(new BankLookupResponse(r.AccountName, r.AccountNumber, r.BankCode));
     }
 
-    /// <summary>Initiate a bank transfer (idempotent on merchantTxRef). Moving money out stays API-key only.</summary>
+    /// <summary>Initiate a bank transfer (idempotent on merchantTxRef). Callable from an API key or a
+    /// dashboard Owner/Admin.</summary>
     /// <response code="201">Transfer created/initiated.</response>
     [HttpPost("bank")]
-    [Authorize(Policy = AuthPolicies.Api)]
+    [Authorize(Policy = AuthPolicies.MovePayouts)]
     [ProducesResponseType(typeof(TransferResponse), StatusCodes.Status201Created)]
     public async Task<ActionResult<TransferResponse>> Create(CreateTransferRequest request, CancellationToken ct)
     {

@@ -23,7 +23,7 @@ public sealed class CheckoutController(
 
     /// <summary>Create a checkout session for one of your virtual accounts (API plane).</summary>
     [HttpPost("/api/v1/checkout/sessions")]
-    [Authorize(Policy = AuthPolicies.Api)]
+    [Authorize(Policy = AuthPolicies.Provision)]
     [ProducesResponseType(typeof(CheckoutSessionResponse), StatusCodes.Status201Created)]
     public async Task<ActionResult<CheckoutSessionResponse>> Create(CreateCheckoutSessionRequest request, CancellationToken ct)
     {
