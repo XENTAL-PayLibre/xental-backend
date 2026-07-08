@@ -17,18 +17,24 @@ public sealed class VirtualAccountService(
     INombaClient nomba)
 {
     public async Task<VirtualAccount> CreateAsync(
-        string accountRef, string name, string? email, string? phone,
+        string? accountRef, string name, string? email, string? phone,
         long? expectedAmountKobo, DateTimeOffset? expiryDateUtc, string? subMerchantRef, bool testMode, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(accountRef))
-            throw new ValidationException("accountRef is required.");
         if (string.IsNullOrWhiteSpace(name))
             throw new ValidationException("Customer name is required.");
         if (expectedAmountKobo is < 0)
             throw new ValidationException("expectedAmount cannot be negative.");
 
         var tenantId = tenantContext.RequireTenantId();
-        var reference = accountRef.Trim();
+
+        // Only a verified account may create customers/NUBANs.
+        var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct)
+            ?? throw new NotFoundException("Account not found.");
+        if (!tenant.EmailVerified)
+            throw new EmailNotVerifiedException("Verify your email before creating a customer.");
+
+        // The customer reference is generated server-side when the caller doesn't supply one.
+        var reference = string.IsNullOrWhiteSpace(accountRef) ? "cust_" + Guid.NewGuid().ToString("N")[..16] : accountRef.Trim();
 
         // Optionally attach the NUBAN to a sub-merchant, which routes its settlement to that
         // sub-merchant's payout account.
