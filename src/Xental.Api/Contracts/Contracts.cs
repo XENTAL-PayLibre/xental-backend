@@ -125,7 +125,8 @@ public sealed record SubMerchantBalanceResponse(
 
 // ---- Virtual accounts (Phase 2) ----
 public sealed record CreateVirtualAccountRequest(
-    [Required, StringLength(100, MinimumLength = 1)] string AccountRef,
+    // Optional — the server generates a unique customer reference when omitted.
+    [StringLength(100)] string? AccountRef,
     [Required, StringLength(200, MinimumLength = 1)] string Name,
     [EmailAddress] string? Email,
     string? Phone,

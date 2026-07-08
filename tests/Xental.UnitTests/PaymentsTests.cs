@@ -115,6 +115,7 @@ public class VirtualAccountServiceTests
     {
         await using var ctx = db.CreateContext();
         var t = new Xental.Domain.Tenancy.Tenant("Acme", $"a-{Guid.NewGuid():N}@x.com", "h");
+        t.MarkEmailVerified(); // provisioning requires a verified account
         ctx.Tenants.Add(t);
         await ctx.SaveChangesAsync();
         return t.Id;
@@ -164,6 +165,34 @@ public class VirtualAccountServiceTests
         await using var ctx2 = db.CreateContext();
         var act = () => new VirtualAccountService(ctx2, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "B", null, null, null, null, null, testMode: false);
         await act.Should().ThrowAsync<ConflictException>();
+    }
+
+    [Fact]
+    public async Task Reference_is_generated_when_omitted()
+    {
+        using var db = new TestDatabase();
+        db.Tenant.TenantId = await SeedTenantAsync(db);
+        await using var ctx = db.CreateContext();
+
+        var va = await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient())
+            .CreateAsync(null, "Ada Payer", null, null, null, null, null, testMode: true);
+
+        va.Reference.Should().StartWith("cust_").And.HaveLength("cust_".Length + 16);
+    }
+
+    [Fact]
+    public async Task Unverified_account_cannot_create_a_customer()
+    {
+        using var db = new TestDatabase();
+        await using var ctx = db.CreateContext();
+        var t = new Xental.Domain.Tenancy.Tenant("Acme", $"a-{Guid.NewGuid():N}@x.com", "h"); // NOT verified
+        ctx.Tenants.Add(t);
+        await ctx.SaveChangesAsync();
+        db.Tenant.TenantId = t.Id;
+
+        var act = () => new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient())
+            .CreateAsync("ref-1", "Ada", null, null, null, null, null, testMode: true);
+        await act.Should().ThrowAsync<EmailNotVerifiedException>();
     }
 }
 
