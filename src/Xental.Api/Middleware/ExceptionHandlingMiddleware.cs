@@ -26,6 +26,9 @@ public sealed class ExceptionHandlingMiddleware(
                 OnboardingNotApprovedException => (StatusCodes.Status403Forbidden, "Onboarding not approved"),
                 ForbiddenException => (StatusCodes.Status403Forbidden, "Forbidden"),
                 ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
+                // Domain-invariant violations (e.g. approving an onboarding track that isn't awaiting
+                // review) are caller/state errors, not server faults — return a clean 409 with the reason.
+                Xental.Domain.Common.DomainException => (StatusCodes.Status409Conflict, "Operation not allowed in the current state"),
                 NotFoundException => (StatusCodes.Status404NotFound, "Not found"),
                 NombaIntegrationException => (StatusCodes.Status502BadGateway, "Upstream provider error"),
                 _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred"),

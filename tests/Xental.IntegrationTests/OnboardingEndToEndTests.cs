@@ -109,6 +109,10 @@ public class OnboardingEndToEndTests
             approve.StatusCode.Should().Be(HttpStatusCode.NoContent);
         }
 
+        // Re-approving an already-approved track is a clean 409 (domain invariant), never a 500.
+        var reApprove = await adminClient.PostAsJsonAsync($"/api/v1/admin/onboarding/{tenantId}/approve", new { track = "DeveloperKyc" });
+        reApprove.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
         // 7. Tenant is now Live -> live key issues.
         var status = await client.GetFromJsonAsync<StatusResponse>("/api/v1/onboarding");
         status!.Tier.Should().Be("Live");
