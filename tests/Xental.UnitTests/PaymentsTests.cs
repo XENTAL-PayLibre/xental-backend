@@ -194,6 +194,32 @@ public class VirtualAccountServiceTests
             .CreateAsync("ref-1", "Ada", null, null, null, null, null, testMode: true);
         await act.Should().ThrowAsync<EmailNotVerifiedException>();
     }
+
+    [Fact]
+    public async Task Summary_reports_total_successful_and_failed_payins()
+    {
+        using var db = new TestDatabase();
+        var tenantId = await SeedTenantAsync(db);
+        db.Tenant.TenantId = tenantId;
+        await using (var ctx = db.CreateContext())
+        {
+            ctx.Transactions.Add(new Transaction(tenantId, null, "t1", "P", Money.FromKobo(500_00), Money.FromKobo(10_00),
+                TransactionStatus.Success, ReconciliationStatus.Reconciled, null, db.Clock.UtcNow, db.Clock.UtcNow));
+            ctx.Transactions.Add(new Transaction(tenantId, null, "t2", "P", Money.FromKobo(800_00), Money.Zero,
+                TransactionStatus.Success, ReconciliationStatus.Overpaid, TransactionFlag.Overpaid, db.Clock.UtcNow, db.Clock.UtcNow));
+            ctx.Transactions.Add(new Transaction(tenantId, null, "t3", "P", Money.FromKobo(500_00), Money.Zero,
+                TransactionStatus.Failed, ReconciliationStatus.Reversed, TransactionFlag.Reversed, db.Clock.UtcNow, db.Clock.UtcNow));
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var check = db.CreateContext();
+        var s = await new TransactionQueryService(check, db.Tenant).SummaryAsync(null, null);
+
+        s.Total.Should().Be(3);
+        s.Successful.Should().Be(2);
+        s.Failed.Should().Be(1);
+        s.TotalPayinsKobo.Should().Be(1300_00, "gross of non-reversed deposits (500 + 800)");
+    }
 }
 
 public class NombaWebhookServiceTests
