@@ -230,13 +230,17 @@ public class Phase1EndToEndTests
         (await api.GetAsync("/api/v1/developers/me"))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden, "profile is dashboard-plane only");
 
-        // A dashboard Owner CAN now provision a DVA (dual-plane) — defaults to test mode without the
-        // X-Xental-Mode header, so it mints a sandbox NUBAN.
+        // A dashboard Owner cannot provision without approved onboarding — the dashboard is the live
+        // (business) plane; test customers/NUBANs are created via a test API key only.
         var dash = await DashboardClientAsync(f, NewEmail());
         var provision = await dash.PostAsJsonAsync("/api/v1/virtual-accounts", new { accountRef = "dash-r1", name = "Jane" });
-        provision.StatusCode.Should().Be(HttpStatusCode.Created);
-        var va = await provision.Content.ReadFromJsonAsync<Dictionary<string, JsonElement>>();
-        va!["accountNumber"].GetString().Should().StartWith("99", "dashboard default is test mode → simulated NUBAN");
+        provision.StatusCode.Should().Be(HttpStatusCode.Forbidden, "dashboard provisioning is live-only and needs approved onboarding");
+
+        // The API test key, by contrast, mints a sandbox NUBAN.
+        var apiVa = await api.PostAsJsonAsync("/api/v1/virtual-accounts", new { accountRef = "api-r1", name = "Jane" });
+        apiVa.StatusCode.Should().Be(HttpStatusCode.Created);
+        var va = await apiVa.Content.ReadFromJsonAsync<Dictionary<string, JsonElement>>();
+        va!["accountNumber"].GetString().Should().StartWith("99", "test API key → simulated NUBAN");
     }
 
     [Fact]
@@ -245,13 +249,8 @@ public class Phase1EndToEndTests
         using var f = new XentalApiFactory();
         var dash = await DashboardClientAsync(f, NewEmail());
 
-        // A fresh dashboard account is sandbox-tier; asking for live mode must be refused.
-        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/virtual-accounts")
-        {
-            Content = JsonContent.Create(new { accountRef = "live-r1", name = "Jane" }),
-        };
-        req.Headers.Add("X-Xental-Mode", "live");
-        var resp = await dash.SendAsync(req);
+        // A fresh dashboard account has no approved onboarding; dashboard provisioning (always live) is refused.
+        var resp = await dash.PostAsJsonAsync("/api/v1/virtual-accounts", new { accountRef = "live-r1", name = "Jane" });
         resp.StatusCode.Should().Be(HttpStatusCode.Forbidden, "live needs approved onboarding");
     }
 
