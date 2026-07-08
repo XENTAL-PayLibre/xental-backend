@@ -203,6 +203,9 @@ public sealed record BankLookupRequest(
 
 public sealed record BankLookupResponse(string AccountName, string AccountNumber, string BankCode);
 
+/// <summary>A selectable bank for payout/settlement UIs (name shown, code sent behind the scenes).</summary>
+public sealed record BankResponse(string Name, string Code);
+
 public sealed record CreateTransferRequest(
     [Required, StringLength(100, MinimumLength = 1)] string MerchantTxRef,
     [Range(1, long.MaxValue)] long AmountKobo,

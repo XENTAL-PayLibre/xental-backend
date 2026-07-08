@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Xental.Api.Authorization;
+using Xental.Api.Banking;
 using Xental.Api.Contracts;
 using Xental.Application.Payments;
 using Xental.Domain.Payments;
@@ -23,6 +24,11 @@ public sealed class TransfersController(TransferService transfers) : ControllerB
     [ProducesResponseType(typeof(IEnumerable<TransferResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<TransferResponse>>> List([FromQuery] int take = 50, CancellationToken ct = default) =>
         Ok((await transfers.ListAsync(take, ct)).Select(ToResponse));
+
+    /// <summary>List selectable banks (name + code) for payout/settlement UIs. Callable from either plane.</summary>
+    [HttpGet("banks")]
+    [ProducesResponseType(typeof(IEnumerable<BankResponse>), StatusCodes.Status200OK)]
+    public ActionResult<IEnumerable<BankResponse>> Banks() => Ok(NigerianBanks.All);
 
     /// <summary>Resolve the recipient account name before sending (name check).</summary>
     [HttpPost("bank/lookup")]
