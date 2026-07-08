@@ -152,6 +152,8 @@ internal sealed class FakeNombaClient : INombaClient
         Task.FromResult(new BankAccountName("Ada Obi", accountNumber, bankCode));
     public Task<TransferResult> InitiateTransferAsync(string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? accountName, string? narration, CancellationToken ct = default) =>
         Task.FromResult(new TransferResult(true, "prov-" + merchantTxRef, null));
+    public Task<IReadOnlyList<BankInfo>> GetBanksAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<BankInfo>>([new BankInfo("Test Bank", "000099")]);
 }
 
 internal sealed class FakeDocumentStorage : IDocumentStorage

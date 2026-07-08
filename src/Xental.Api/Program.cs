@@ -38,6 +38,7 @@ builder.Host.UseSerilog((context, configuration) => configuration
 // --- Service registration ------------------------------------------------
 
 builder.Services.AddControllers();
+builder.Services.AddMemoryCache(); // caches the provider bank list
 
 // Clean Architecture layers.
 builder.Services.AddApplication();

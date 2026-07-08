@@ -115,6 +115,45 @@ public sealed class NombaClient(
         }
     }
 
+    public async Task<IReadOnlyList<BankInfo>> GetBanksAsync(CancellationToken ct = default)
+    {
+        var http = httpClientFactory.CreateClient("nomba");
+        var token = await tokenProvider.GetAccessTokenAsync(ct);
+        using var request = new HttpRequestMessage(HttpMethod.Get, "transfers/banks");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (!string.IsNullOrWhiteSpace(_options.AccountId))
+            request.Headers.TryAddWithoutValidation("accountId", _options.AccountId);
+
+        using var response = await http.SendAsync(request, ct);
+        var raw = await response.Content.ReadAsStringAsync(ct);
+        if (!response.IsSuccessStatusCode)
+            throw new NombaIntegrationException($"Nomba transfers/banks failed ({(int)response.StatusCode}): {raw}");
+
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        var data = root.TryGetProperty("data", out var d) ? d : root;
+        JsonElement array;
+        if (data.ValueKind == JsonValueKind.Array) array = data;
+        else if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("banks", out var b) && b.ValueKind == JsonValueKind.Array) array = b;
+        else return Array.Empty<BankInfo>();
+
+        var banks = new List<BankInfo>();
+        foreach (var el in array.EnumerateArray())
+        {
+            var name = Val(el, "name") ?? Val(el, "bankName");
+            var code = Val(el, "code") ?? Val(el, "bankCode");
+            if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(code))
+                banks.Add(new BankInfo(name!, code!));
+        }
+        return banks;
+    }
+
+    /// <summary>Read a property as a string, tolerating numeric values (e.g. a numeric bank code).</summary>
+    private static string? Val(JsonElement el, string name) =>
+        el.ValueKind == JsonValueKind.Object && el.TryGetProperty(name, out var v)
+            ? v.ValueKind switch { JsonValueKind.String => v.GetString(), JsonValueKind.Number => v.GetRawText(), _ => null }
+            : null;
+
     private async Task<JsonDocument> SendAsync(HttpMethod method, string path, object body, CancellationToken ct)
     {
         var http = httpClientFactory.CreateClient("nomba");
