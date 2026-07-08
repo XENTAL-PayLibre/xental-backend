@@ -176,4 +176,17 @@ public sealed class DevelopersController(
         var ok = await passwordReset.ResetAsync(request.Token, request.NewPassword, ct);
         return ok ? NoContent() : BadRequest(new { title = "Invalid or expired reset link." });
     }
+
+    /// <summary>Change the signed-in account's password (requires the current password).</summary>
+    /// <response code="204">Password updated.</response>
+    /// <response code="400">Current password wrong, or new password too weak.</response>
+    [Authorize(Policy = AuthPolicies.Dashboard)]
+    [HttpPost("change-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ChangePassword(ChangePasswordRequest request, CancellationToken ct)
+    {
+        await profiles.ChangePasswordAsync(tenant.RequireTenantId(), request.CurrentPassword, request.NewPassword, ct);
+        return NoContent();
+    }
 }

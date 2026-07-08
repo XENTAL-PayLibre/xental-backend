@@ -173,6 +173,35 @@ public class PasswordResetServiceTests
         await Service(db, ctx, mail).RequestAsync("nobody@example.com");
         mail.LastResetLink.Should().BeNull();
     }
+
+    [Fact]
+    public async Task Change_password_requires_the_correct_current_password()
+    {
+        using var db = new TestDatabase();
+        var email = await SeedTenantAsync(db);
+        Guid tenantId;
+        await using (var ctx = db.CreateContext())
+            tenantId = (await ctx.Tenants.SingleAsync(t => t.Email == email)).Id;
+
+        // Wrong current password is rejected.
+        await using (var ctx = db.CreateContext())
+        {
+            var svc = new DeveloperProfileService(ctx, TestSecurity.PasswordHasher());
+            var bad = () => svc.ChangePasswordAsync(tenantId, "wrong-password", NewPassword);
+            await bad.Should().ThrowAsync<ValidationException>();
+        }
+
+        // Correct current password changes it to the new one.
+        await using (var ctx = db.CreateContext())
+            await new DeveloperProfileService(ctx, TestSecurity.PasswordHasher())
+                .ChangePasswordAsync(tenantId, TestSecurity.StrongPassword, NewPassword);
+
+        var hasher = TestSecurity.PasswordHasher();
+        await using var check = db.CreateContext();
+        var tenant = await check.Tenants.SingleAsync(t => t.Id == tenantId);
+        hasher.Verify(NewPassword, tenant.PasswordHash).Should().BeTrue();
+        hasher.Verify(TestSecurity.StrongPassword, tenant.PasswordHash).Should().BeFalse();
+    }
 }
 
 public class OAuthLoginServiceTests

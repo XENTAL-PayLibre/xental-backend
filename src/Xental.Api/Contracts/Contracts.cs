@@ -63,6 +63,11 @@ public sealed record ResetPasswordRequest(
     [Required] string Token,
     [Required, StringLength(128)] string NewPassword);
 
+/// <summary>Change the signed-in account's password (requires the current password).</summary>
+public sealed record ChangePasswordRequest(
+    [Required] string CurrentPassword,
+    [Required, StringLength(128)] string NewPassword);
+
 // ---- API keys (created in the dashboard, used by the integration) ----
 public sealed record CreateApiKeyRequest(
     [Required, StringLength(100, MinimumLength = 2)] string Label,
