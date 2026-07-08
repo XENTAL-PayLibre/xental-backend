@@ -192,6 +192,9 @@ public sealed class FakeNombaClient(string accountNumber = "1234567890") : INomb
         Task.FromResult(TransferSucceeds
             ? new TransferResult(true, "prov-" + merchantTxRef, null)
             : new TransferResult(false, null, "declined"));
+
+    public Task<IReadOnlyList<BankInfo>> GetBanksAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<BankInfo>>([new BankInfo("Test Bank", "000099")]);
 }
 
 public sealed class FakeSignatureVerifier(bool result = true) : INombaSignatureVerifier

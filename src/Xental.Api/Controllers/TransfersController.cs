@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Caching.Memory;
 using Xental.Api.Authorization;
 using Xental.Api.Banking;
 using Xental.Api.Contracts;
@@ -17,18 +18,39 @@ namespace Xental.Api.Controllers;
 [Route("api/v1/transfers")]
 [Authorize(Policy = AuthPolicies.ApiOrDashboard)] // reads usable from the dashboard; the payout write stays API-only
 [EnableRateLimiting("api-key")]
-public sealed class TransfersController(TransferService transfers) : ControllerBase
+public sealed class TransfersController(TransferService transfers, IMemoryCache cache) : ControllerBase
 {
+    private const string BanksCacheKey = "transfers:banks";
+
     /// <summary>List the account's payouts, most recent first.</summary>
     [HttpGet]
     [ProducesResponseType(typeof(IEnumerable<TransferResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<TransferResponse>>> List([FromQuery] int take = 50, CancellationToken ct = default) =>
         Ok((await transfers.ListAsync(take, ct)).Select(ToResponse));
 
-    /// <summary>List selectable banks (name + code) for payout/settlement UIs. Callable from either plane.</summary>
+    /// <summary>List selectable banks (name + code) for payout/settlement UIs. Pulls the provider's live
+    /// list (cached), falling back to a built-in Nigerian bank list if the provider is unavailable.</summary>
     [HttpGet("banks")]
     [ProducesResponseType(typeof(IEnumerable<BankResponse>), StatusCodes.Status200OK)]
-    public ActionResult<IEnumerable<BankResponse>> Banks() => Ok(NigerianBanks.All);
+    public async Task<ActionResult<IEnumerable<BankResponse>>> Banks(CancellationToken ct)
+    {
+        if (cache.TryGetValue(BanksCacheKey, out IReadOnlyList<BankResponse>? cached) && cached is not null)
+            return Ok(cached);
+
+        var live = await transfers.GetBanksAsync(ct);
+        if (live.Count > 0)
+        {
+            var mapped = live
+                .Select(b => new BankResponse(b.Name, b.Code))
+                .OrderBy(b => b.Name)
+                .ToList();
+            cache.Set(BanksCacheKey, (IReadOnlyList<BankResponse>)mapped, TimeSpan.FromHours(12));
+            return Ok(mapped);
+        }
+
+        // Provider unavailable — serve the built-in list without caching so the next call retries.
+        return Ok(NigerianBanks.All);
+    }
 
     /// <summary>Resolve the recipient account name before sending (name check).</summary>
     [HttpPost("bank/lookup")]

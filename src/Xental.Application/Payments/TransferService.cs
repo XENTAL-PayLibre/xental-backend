@@ -29,6 +29,14 @@ public sealed class TransferService(
         return nomba.LookupBankAccountAsync(accountNumber.Trim(), bankCode.Trim(), ct);
     }
 
+    /// <summary>The provider's payable-bank list. Returns empty if the provider is unavailable so the
+    /// caller can fall back to a built-in list.</summary>
+    public async Task<IReadOnlyList<BankInfo>> GetBanksAsync(CancellationToken ct = default)
+    {
+        try { return await nomba.GetBanksAsync(ct); }
+        catch (NombaIntegrationException) { return Array.Empty<BankInfo>(); }
+    }
+
     public async Task<Transfer> InitiateAsync(
         string merchantTxRef, long amountKobo, string accountNumber, string bankCode, string? narration, CancellationToken ct = default)
     {
