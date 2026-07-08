@@ -31,12 +31,17 @@ public sealed class NombaClient(
         var http = httpClientFactory.CreateClient("nomba");
         var token = await tokenProvider.GetAccessTokenAsync(ct);
 
+        // Nomba rejects account names with special characters (it returns a 200 body with
+        // status:false, "Account name must not contain special characters."). Strip anything
+        // that isn't a letter, digit or space so ordinary customer names always go through.
+        var safeAccountName = SanitizeAccountName(accountName);
+
         using var request = new HttpRequestMessage(HttpMethod.Post, $"accounts/virtual/{_options.SubAccountId}")
         {
             Content = JsonContent.Create(new
             {
                 accountRef,
-                accountName,
+                accountName = safeAccountName,
                 email,
                 phoneNumber = phone,
             }),
@@ -59,7 +64,14 @@ public sealed class NombaClient(
         try
         {
             using var doc = JsonDocument.Parse(body);
-            var data = doc.RootElement.TryGetProperty("data", out var d) ? d : doc.RootElement;
+            var root = doc.RootElement;
+
+            // Nomba can return HTTP 200 with a failure envelope (status:false). Treat that as a
+            // request-level rejection and surface the provider's reason as a clean validation error.
+            if (root.TryGetProperty("status", out var status) && status.ValueKind == JsonValueKind.False)
+                throw new ValidationException(ExtractMessage(body) ?? "The account provider rejected the request.");
+
+            var data = root.TryGetProperty("data", out var d) ? d : root;
 
             var accountNumber = Str(data, "bankAccountNumber") ?? Str(data, "accountNumber") ?? Str(data, "accountNo");
             var bankName = Str(data, "bankName") ?? "Nomba";
@@ -75,6 +87,19 @@ public sealed class NombaClient(
         {
             throw new NombaIntegrationException($"Could not parse Nomba virtual-account response: {body}");
         }
+    }
+
+    /// <summary>Nomba only accepts letters, digits and spaces in an account name. Replace any other
+    /// character with a space and collapse runs of whitespace; fall back to "Customer" if nothing
+    /// usable remains. Keeps the stored customer name intact — only the provider payload is cleaned.</summary>
+    private static string SanitizeAccountName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "Customer";
+        var arr = name.ToCharArray();
+        for (var i = 0; i < arr.Length; i++)
+            if (!char.IsLetterOrDigit(arr[i]) && arr[i] != ' ') arr[i] = ' ';
+        var cleaned = string.Join(' ', new string(arr).Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return cleaned.Length == 0 ? "Customer" : cleaned;
     }
 
     public async Task<BankAccountName> LookupBankAccountAsync(string accountNumber, string bankCode, CancellationToken ct = default)
