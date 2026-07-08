@@ -10,8 +10,8 @@ namespace Xental.Api.Auth;
 /// Resolves test/live for the current request from either plane:
 /// <list type="bullet">
 /// <item>API token → the <c>key_mode</c> claim (live keys are already KYC-gated at creation).</item>
-/// <item>Dashboard token → the <c>X-Xental-Mode</c> header (<c>test</c>|<c>live</c>), defaulting to
-/// test. Live is only granted when the tenant's onboarding tier is <c>Live</c>.</item>
+/// <item>Dashboard token → always live. The dashboard is the business plane; test customers and
+/// virtual accounts are created via a test API key. Live requires an approved onboarding tier.</item>
 /// </list>
 /// </summary>
 public sealed class ModeContext(
@@ -30,12 +30,8 @@ public sealed class ModeContext(
         if (scope == AuthPolicies.Api)
             return string.Equals(user?.FindFirst("key_mode")?.Value, "live", StringComparison.OrdinalIgnoreCase);
 
-        // Dashboard plane: opt in to live via header (default test).
-        var header = accessor.HttpContext?.Request.Headers[ModeHeader].ToString();
-        if (!string.Equals(header, "live", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        // Live from the dashboard requires an approved live onboarding — same gate as a live API key.
+        // Dashboard plane: always live (the business plane). Test customers/virtual accounts are an
+        // API-key concern. Live requires an approved live onboarding — same gate as a live API key.
         var tenantId = tenant.RequireTenantId();
         var tier = await db.OnboardingApplications.AsNoTracking()
             .Where(a => a.TenantId == tenantId)
@@ -43,7 +39,7 @@ public sealed class ModeContext(
             .FirstOrDefaultAsync(ct);
         if (tier != KycTier.Live)
             throw new OnboardingNotApprovedException(
-                "Live mode requires an approved KYC + KYB onboarding. Complete verification to go live, or omit the X-Xental-Mode header to use test mode.");
+                "Creating live customers requires an approved KYC + KYB onboarding. Complete verification to go live. Test customers and virtual accounts are created with a test API key.");
         return true;
     }
 }

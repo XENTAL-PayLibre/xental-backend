@@ -136,7 +136,32 @@ public class VirtualAccountServiceTests
         va.ExpectedAmountKobo.Should().Be(500_00);
 
         var reloaded = await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient()).GetByReferenceAsync("stu-001");
-        reloaded.AccountNumber.Should().Be("9011223344");
+        reloaded.Account.AccountNumber.Should().Be("9011223344");
+        reloaded.CustomerName.Should().Be("Ada Payer");
+        reloaded.CustomerEmail.Should().Be("ada@x.com");
+    }
+
+    [Fact]
+    public async Task Delete_removes_an_account_with_no_activity_but_refuses_one_with_payments()
+    {
+        using var db = new TestDatabase();
+        db.Tenant.TenantId = await SeedTenantAsync(db);
+        await using var ctx = db.CreateContext();
+        var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("9011223344"));
+
+        await svc.CreateAsync("del-ok", "No Pay", "a@x.com", null, null, null, null, testMode: true);
+        await svc.CreateAsync("del-paid", "Has Pay", "b@x.com", null, null, null, null, testMode: true);
+
+        // Simulate a payment on the second account.
+        var paid = await ctx.VirtualAccounts.FirstAsync(v => v.Reference == "del-paid");
+        paid.ApplyInflow(Money.FromKobo(1_000_00));
+        await ctx.SaveChangesAsync();
+
+        await svc.DeleteAsync("del-ok");
+        (await ctx.VirtualAccounts.AnyAsync(v => v.Reference == "del-ok")).Should().BeFalse();
+
+        var blocked = () => svc.DeleteAsync("del-paid");
+        await blocked.Should().ThrowAsync<ConflictException>();
     }
 
     [Fact]

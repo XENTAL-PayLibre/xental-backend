@@ -6,6 +6,9 @@ using Xental.Domain.Payments;
 
 namespace Xental.Application.Payments;
 
+/// <summary>A virtual account enriched with its customer's contact details for the dashboard.</summary>
+public sealed record VirtualAccountView(VirtualAccount Account, string? CustomerName, string? CustomerEmail, string? CustomerPhone);
+
 /// <summary>
 /// Provisions and reads persistent NUBANs. Creating a virtual account finds-or-creates the
 /// customer (by developer-supplied ref), asks Nomba for a NUBAN, and persists the mapping.
@@ -86,15 +89,20 @@ public sealed class VirtualAccountService(
         throw new ValidationException("Could not allocate a sandbox account number. Please retry.");
     }
 
-    public async Task<VirtualAccount> GetByReferenceAsync(string accountRef, CancellationToken ct = default)
+    public async Task<VirtualAccountView> GetByReferenceAsync(string accountRef, CancellationToken ct = default)
     {
         var reference = (accountRef ?? string.Empty).Trim();
-        return await db.VirtualAccounts.AsNoTracking().FirstOrDefaultAsync(v => v.Reference == reference, ct)
-            ?? throw new NotFoundException($"No virtual account for accountRef '{reference}'.");
+        var view = await (
+            from v in db.VirtualAccounts.AsNoTracking().Where(v => v.Reference == reference)
+            join c in db.Customers.AsNoTracking() on v.CustomerId equals c.Id into cj
+            from c in cj.DefaultIfEmpty()
+            select new VirtualAccountView(v, c!.Name, c.Email, c.Phone)).FirstOrDefaultAsync(ct);
+        return view ?? throw new NotFoundException($"No virtual account for accountRef '{reference}'.");
     }
 
-    /// <summary>The tenant's virtual accounts, most recent first (optionally scoped to a sub-merchant).</summary>
-    public async Task<IReadOnlyList<VirtualAccount>> ListAsync(string? subMerchantRef = null, int take = 50, CancellationToken ct = default)
+    /// <summary>The tenant's virtual accounts, most recent first (optionally scoped to a sub-merchant),
+    /// each with its customer's name/email/phone for the dashboard.</summary>
+    public async Task<IReadOnlyList<VirtualAccountView>> ListAsync(string? subMerchantRef = null, int take = 50, CancellationToken ct = default)
     {
         tenantContext.RequireTenantId();
         var q = db.VirtualAccounts.AsNoTracking();
@@ -105,6 +113,39 @@ public sealed class VirtualAccountService(
                 ?? throw new NotFoundException($"No sub-merchant with reference '{subRef}'.");
             q = q.Where(v => v.SubMerchantId == sub.Id);
         }
-        return await q.OrderByDescending(v => v.CreatedAtUtc).Take(Math.Clamp(take, 1, 200)).ToListAsync(ct);
+        return await (
+            from v in q
+            join c in db.Customers.AsNoTracking() on v.CustomerId equals c.Id into cj
+            from c in cj.DefaultIfEmpty()
+            orderby v.CreatedAtUtc descending
+            select new VirtualAccountView(v, c!.Name, c.Email, c.Phone))
+            .Take(Math.Clamp(take, 1, 200)).ToListAsync(ct);
+    }
+
+    /// <summary>Delete a virtual account (and its customer, if this was the customer's only account).
+    /// Refuses accounts that have any payment activity — those must be kept for the ledger.</summary>
+    public async Task DeleteAsync(string accountRef, CancellationToken ct = default)
+    {
+        tenantContext.RequireTenantId();
+        var reference = (accountRef ?? string.Empty).Trim();
+        var va = await db.VirtualAccounts.FirstOrDefaultAsync(v => v.Reference == reference, ct)
+            ?? throw new NotFoundException($"No virtual account for accountRef '{reference}'.");
+
+        var hasActivity = va.AmountPaidKobo > 0 || await db.Transactions.AnyAsync(t => t.VirtualAccountId == va.Id, ct);
+        if (hasActivity)
+            throw new ConflictException("This customer has payment activity and cannot be deleted.");
+
+        var customerId = va.CustomerId;
+        db.VirtualAccounts.Remove(va);
+
+        // Drop the customer too when it has no other virtual accounts.
+        var customerHasOtherAccounts = await db.VirtualAccounts.AnyAsync(v => v.CustomerId == customerId && v.Id != va.Id, ct);
+        if (!customerHasOtherAccounts)
+        {
+            var customer = await db.Customers.FirstOrDefaultAsync(c => c.Id == customerId, ct);
+            if (customer is not null) db.Customers.Remove(customer);
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 }
