@@ -30,6 +30,18 @@ public sealed class TransactionsController(TransactionQueryService transactions,
         return Ok(list.Select(ToResponse));
     }
 
+    /// <summary>Pay-ins summary (total / successful / failed) for the dashboard cards, optionally scoped
+    /// to a date range. Usable from the dashboard or an API key.</summary>
+    [HttpGet("summary")]
+    [ProducesResponseType(typeof(TransactionSummaryResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<TransactionSummaryResponse>> Summary(
+        [FromQuery] DateTimeOffset? from, [FromQuery] DateTimeOffset? to, CancellationToken ct = default)
+    {
+        var s = await transactions.SummaryAsync(from, to, ct);
+        return Ok(new TransactionSummaryResponse(
+            s.Total, s.TotalPayinsKobo, s.Successful, s.Failed, s.PendingReview, s.SuccessfulKobo, s.NetCreditedKobo));
+    }
+
     /// <summary>Fetch a single transaction by its provider reference.</summary>
     [HttpGet("{reference}")]
     [ProducesResponseType(typeof(TransactionResponse), StatusCodes.Status200OK)]

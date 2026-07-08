@@ -168,6 +168,16 @@ public sealed record TransactionResponse(
     DateTimeOffset OccurredAtUtc,
     DateTimeOffset? ReconciledAtUtc);
 
+/// <summary>Pay-ins summary for the dashboard cards.</summary>
+public sealed record TransactionSummaryResponse(
+    int Total,
+    long TotalPayinsKobo,
+    int Successful,
+    int Failed,
+    int PendingReview,
+    long SuccessfulKobo,
+    long NetCreditedKobo);
+
 /// <summary>Refund an overpayment. All fields optional — omit to refund the payer's captured source account.</summary>
 public sealed record RefundOverpaymentRequest(
     [StringLength(20)] string? AccountNumber,
