@@ -14,7 +14,7 @@ public sealed record DeveloperProfile(
     DateTimeOffset CreatedAtUtc);
 
 /// <summary>Reads and updates the current developer account's own profile.</summary>
-public sealed class DeveloperProfileService(IApplicationDbContext db)
+public sealed class DeveloperProfileService(IApplicationDbContext db, IPasswordHasher passwords)
 {
     public async Task<DeveloperProfile> GetAsync(Guid tenantId, CancellationToken ct = default)
     {
@@ -24,6 +24,22 @@ public sealed class DeveloperProfileService(IApplicationDbContext db)
         return new DeveloperProfile(
             tenant.Id, tenant.Name, tenant.Email, tenant.BrandName, tenant.EmailVerified,
             tenant.Status.ToString(), tenant.CreatedAtUtc);
+    }
+
+    /// <summary>Change the account's password after verifying the current one.</summary>
+    public async Task ChangePasswordAsync(Guid tenantId, string currentPassword, string newPassword, CancellationToken ct = default)
+    {
+        var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId, ct)
+            ?? throw new NotFoundException("Account not found.");
+
+        if (!tenant.HasPassword)
+            throw new ValidationException("This account signs in with a social provider and has no password to change.");
+        if (!passwords.Verify(currentPassword ?? string.Empty, tenant.PasswordHash))
+            throw new ValidationException("Your current password is incorrect.");
+
+        Common.PasswordPolicy.Validate(newPassword);
+        tenant.SetPassword(passwords.Hash(newPassword));
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>Set the public brand/product name shown to payers.</summary>
