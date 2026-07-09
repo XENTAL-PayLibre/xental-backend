@@ -275,6 +275,7 @@ public class NombaWebhookServiceTests
             new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock),
             new Xental.Infrastructure.Payments.InMemoryReconciliationNotifier(),
             new RuleEngine(ctx, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), db.Clock),
+            new FlowEngine(ctx, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), db.Clock),
             new Xental.Application.Billing.BillingService(ctx, db.Tenant, new Xental.Application.Webhooks.OutboundEventPublisher(ctx, db.Clock), new FakeEmailSender(), new FakeAlerter(), db.Clock),
             db.Clock);
 
@@ -378,5 +379,122 @@ public class NombaWebhookServiceTests
         await using (var ctx = db.CreateContext()) result = await Service(db, ctx).ProcessAsync(body, "sig", "ts");
         result.Reconciliation.Should().Be(ReconciliationStatus.Overpaid);
         result.PaymentState.Should().Be(PaymentState.Overpaid);
+    }
+
+    // ---- Programmable Payment Flows ----
+
+    private static async Task AddFlowAsync(TestDatabase db, Guid tenantId, string name, FlowTrigger trigger,
+        FlowActionType[] actions, long? minAmountKobo = null, bool enabled = true)
+    {
+        await using var ctx = db.CreateContext();
+        var flow = new Flow(tenantId, name, trigger, minAmountKobo, null, 1, db.Clock.UtcNow);
+        flow.SetActions(actions);
+        if (!enabled) flow.SetEnabled(false);
+        ctx.Flows.Add(flow);
+        await ctx.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Flow_on_overpaid_holds_notifies_and_writes_an_audit_run()
+    {
+        using var db = new TestDatabase();
+        var tenantId = await SeedAccountAsync(db, "9000000001", 500_00);
+        await AddFlowAsync(db, tenantId, "Hold overpayments", FlowTrigger.Overpaid,
+            new[] { FlowActionType.Hold, FlowActionType.NotifyWebhook });
+
+        var body = Encoding.UTF8.GetBytes(Payload("txn-of", "9000000001", 600.00m)); // ₦600 > ₦500 expected
+        await using (var ctx = db.CreateContext()) await Service(db, ctx).ProcessAsync(body, "sig", "ts");
+
+        await using var check = db.CreateContext();
+        (await check.EscrowHolds.IgnoreQueryFilters().CountAsync(e => e.State == EscrowState.Held)).Should().Be(1);
+        var run = await check.FlowRuns.IgnoreQueryFilters().SingleAsync();
+        run.FlowName.Should().Be("Hold overpayments");
+        run.Trigger.Should().Be("Overpaid");
+        run.Outcome.Should().Contain("Hold").And.Contain("flow.notify");
+    }
+
+    [Fact]
+    public async Task Flow_does_not_run_when_the_trigger_does_not_match()
+    {
+        using var db = new TestDatabase();
+        var tenantId = await SeedAccountAsync(db, "9000000002", 500_00);
+        await AddFlowAsync(db, tenantId, "Only underpaid", FlowTrigger.Underpaid, new[] { FlowActionType.Hold });
+
+        var body = Encoding.UTF8.GetBytes(Payload("txn-exact", "9000000002", 500.00m)); // exact → Reconciled
+        await using (var ctx = db.CreateContext()) await Service(db, ctx).ProcessAsync(body, "sig", "ts");
+
+        await using var check = db.CreateContext();
+        (await check.FlowRuns.IgnoreQueryFilters().CountAsync()).Should().Be(0);
+        (await check.EscrowHolds.IgnoreQueryFilters().CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Flow_min_amount_gate_skips_small_deposits()
+    {
+        using var db = new TestDatabase();
+        var tenantId = await SeedAccountAsync(db, "9000000003", null); // no expectation → any deposit reconciles
+        await AddFlowAsync(db, tenantId, "Big deposits only", FlowTrigger.Deposit,
+            new[] { FlowActionType.NotifyWebhook }, minAmountKobo: 1_000_00);
+
+        var body = Encoding.UTF8.GetBytes(Payload("txn-small", "9000000003", 500.00m)); // ₦500 < ₦1,000 gate
+        await using (var ctx = db.CreateContext()) await Service(db, ctx).ProcessAsync(body, "sig", "ts");
+
+        await using var check = db.CreateContext();
+        (await check.FlowRuns.IgnoreQueryFilters().CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Disabled_flow_never_runs()
+    {
+        using var db = new TestDatabase();
+        var tenantId = await SeedAccountAsync(db, "9000000004", 500_00);
+        await AddFlowAsync(db, tenantId, "Off", FlowTrigger.Deposit, new[] { FlowActionType.NotifyWebhook }, enabled: false);
+
+        var body = Encoding.UTF8.GetBytes(Payload("txn-off", "9000000004", 500.00m));
+        await using (var ctx = db.CreateContext()) await Service(db, ctx).ProcessAsync(body, "sig", "ts");
+
+        await using var check = db.CreateContext();
+        (await check.FlowRuns.IgnoreQueryFilters().CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task FlowService_crud_roundtrip()
+    {
+        using var db = new TestDatabase();
+        var tenantId = await SeedAccountAsync(db, "9000000005", 500_00);
+        db.Tenant.TenantId = tenantId;
+
+        await using var ctx = db.CreateContext();
+        var svc = new FlowService(ctx, db.Tenant, db.Clock);
+
+        var created = await svc.CreateAsync(new FlowSpec("Auto-hold", "Overpaid", new[] { "Hold", "NotifyWebhook" }, null, null, 1));
+        created.Actions.Should().HaveCount(2);
+        (await svc.ListAsync()).Should().ContainSingle();
+
+        var updated = await svc.UpdateAsync(created.Id, new FlowSpec("Auto-hold v2", "Underpaid", new[] { "ReviewFlag" }, 100_00, null, 2));
+        updated.Trigger.Should().Be(FlowTrigger.Underpaid);
+        updated.Actions.Should().ContainSingle();
+
+        await svc.SetEnabledAsync(updated.Id, false);
+        (await svc.GetAsync(updated.Id)).Enabled.Should().BeFalse();
+
+        await svc.DeleteAsync(updated.Id);
+        (await svc.ListAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FlowService_rejects_unknown_trigger_and_empty_actions()
+    {
+        using var db = new TestDatabase();
+        var tenantId = await SeedAccountAsync(db, "9000000006", 500_00);
+        db.Tenant.TenantId = tenantId;
+        await using var ctx = db.CreateContext();
+        var svc = new FlowService(ctx, db.Tenant, db.Clock);
+
+        var badTrigger = () => svc.CreateAsync(new FlowSpec("x", "Nope", new[] { "Hold" }, null, null, 1));
+        await badTrigger.Should().ThrowAsync<Xental.Application.Common.Exceptions.ValidationException>();
+
+        var noActions = () => svc.CreateAsync(new FlowSpec("x", "Deposit", Array.Empty<string>(), null, null, 1));
+        await noActions.Should().ThrowAsync<Xental.Application.Common.Exceptions.ValidationException>();
     }
 }

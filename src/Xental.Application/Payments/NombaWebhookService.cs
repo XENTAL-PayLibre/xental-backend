@@ -31,6 +31,7 @@ public sealed class NombaWebhookService(
     OutboundEventPublisher outbound,
     IReconciliationNotifier notifier,
     RuleEngine rules,
+    FlowEngine flows,
     BillingService billing,
     IClock clock)
 {
@@ -154,6 +155,11 @@ public sealed class NombaWebhookService(
         // rule failure cannot corrupt the reconciliation that already succeeded.
         try { await rules.EvaluateAsync(account, txn, ct); }
         catch { /* rules are advisory — never fail the webhook over them */ }
+
+        // Programmable Payment Flows (differentiator): multi-step automation on the committed outcome.
+        // Post-commit + isolated, exactly like Money Rules — a flow can never change the payment verdict.
+        try { await flows.RunAsync(account, txn, ct); }
+        catch { /* flows are advisory — never fail the webhook over them */ }
 
         // Recurring billing (push model): attribute this credit to the account's schedule periods.
         // Post-commit + isolated + idempotent (water-mark) — never fails the webhook over billing.

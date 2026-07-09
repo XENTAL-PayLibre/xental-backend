@@ -43,6 +43,8 @@ public sealed class XentalDbContext : DbContext, IApplicationDbContext
     public DbSet<SettlementSplit> SettlementSplits => Set<SettlementSplit>();
     public DbSet<EscrowHold> EscrowHolds => Set<EscrowHold>();
     public DbSet<MoneyRule> MoneyRules => Set<MoneyRule>();
+    public DbSet<Flow> Flows => Set<Flow>();
+    public DbSet<FlowRun> FlowRuns => Set<FlowRun>();
     public DbSet<CheckoutSession> CheckoutSessions => Set<CheckoutSession>();
     public DbSet<Xental.Domain.Billing.BillingSchedule> BillingSchedules => Set<Xental.Domain.Billing.BillingSchedule>();
     public DbSet<Xental.Domain.Billing.BillingPeriod> BillingPeriods => Set<Xental.Domain.Billing.BillingPeriod>();
