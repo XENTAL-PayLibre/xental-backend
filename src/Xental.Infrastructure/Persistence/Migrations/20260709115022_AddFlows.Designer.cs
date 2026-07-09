@@ -12,7 +12,7 @@ using Xental.Infrastructure.Persistence;
 namespace Xental.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(XentalDbContext))]
-    [Migration("20260709104844_AddFlows")]
+    [Migration("20260709115022_AddFlows")]
     partial class AddFlows
     {
         /// <inheritdoc />
