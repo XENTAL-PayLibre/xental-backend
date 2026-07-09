@@ -29,6 +29,8 @@ public interface IApplicationDbContext
     DbSet<SettlementSplit> SettlementSplits { get; }
     DbSet<EscrowHold> EscrowHolds { get; }
     DbSet<MoneyRule> MoneyRules { get; }
+    DbSet<Flow> Flows { get; }
+    DbSet<FlowRun> FlowRuns { get; }
     DbSet<CheckoutSession> CheckoutSessions { get; }
     DbSet<BillingSchedule> BillingSchedules { get; }
     DbSet<BillingPeriod> BillingPeriods { get; }

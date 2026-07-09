@@ -74,6 +74,7 @@ public class OutboundEmitTests
         new(ctx, new FakeSignatureVerifier(true), new RiskEvaluator(ctx, db.Clock), new OutboundEventPublisher(ctx, db.Clock),
             new Xental.Infrastructure.Payments.InMemoryReconciliationNotifier(),
             new RuleEngine(ctx, new OutboundEventPublisher(ctx, db.Clock), db.Clock),
+            new FlowEngine(ctx, new OutboundEventPublisher(ctx, db.Clock), db.Clock),
             new Xental.Application.Billing.BillingService(ctx, db.Tenant, new OutboundEventPublisher(ctx, db.Clock), new FakeEmailSender(), new FakeAlerter(), db.Clock),
             db.Clock);
 

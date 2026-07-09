@@ -440,6 +440,24 @@ public sealed record CreateRuleRequest(
 public sealed record RuleResponse(
     Guid Id, string Trigger, string Action, long? ThresholdKobo, int? MinRiskScore, bool Enabled, int Priority);
 
+// ---- Programmable Payment Flows ----
+public sealed record CreateFlowRequest(
+    [Required, StringLength(120, MinimumLength = 1)] string Name,
+    [Required] string Trigger,
+    [Required, MinLength(1)] List<string> Actions,
+    [Range(0, long.MaxValue)] long? MinAmountKobo,
+    [Range(0, 100)] int? MinRiskScore,
+    int Priority);
+
+public sealed record SetFlowEnabledRequest(bool Enabled);
+
+public sealed record FlowResponse(
+    Guid Id, string Name, string Trigger, IReadOnlyList<string> Actions,
+    long? MinAmountKobo, int? MinRiskScore, bool Enabled, int Priority, DateTimeOffset CreatedAtUtc);
+
+public sealed record FlowRunResponse(
+    Guid Id, Guid FlowId, string FlowName, string Trigger, string? AccountRef, string? TransactionRef, string Outcome, DateTimeOffset CreatedAtUtc);
+
 // ---- Sandbox simulator (agent layer) ----
 public sealed record SimulateDepositRequest(
     [Required] string AccountRef,

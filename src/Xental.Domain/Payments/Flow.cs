@@ -29,7 +29,6 @@ public sealed class Flow : BaseEntity, ITenantOwned
 
     public bool Enabled { get; private set; } = true;
     public int Priority { get; private set; }
-    public DateTimeOffset CreatedAtUtc { get; private set; }
 
     public IReadOnlyList<FlowAction> Actions => _actions;
 
@@ -101,7 +100,6 @@ public sealed class FlowRun : BaseEntity, ITenantOwned
     public string? AccountRef { get; private set; }
     public string? TransactionRef { get; private set; }
     public string Outcome { get; private set; } = null!;
-    public DateTimeOffset CreatedAtUtc { get; private set; }
 
     private FlowRun() { }
 
