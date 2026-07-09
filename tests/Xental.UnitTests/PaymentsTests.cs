@@ -128,14 +128,14 @@ public class VirtualAccountServiceTests
         db.Tenant.TenantId = await SeedTenantAsync(db);
 
         await using var ctx = db.CreateContext();
-        var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("9011223344"));
+        var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("9011223344"), new FakeEmailSender());
         var va = await svc.CreateAsync("stu-001", "Ada Payer", "ada@x.com", null, 500_00, null, null, testMode: false);
 
         va.AccountNumber.Should().Be("9011223344");
         va.Reference.Should().Be("stu-001");
         va.ExpectedAmountKobo.Should().Be(500_00);
 
-        var reloaded = await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient()).GetByReferenceAsync("stu-001");
+        var reloaded = await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient(), new FakeEmailSender()).GetByReferenceAsync("stu-001");
         reloaded.Account.AccountNumber.Should().Be("9011223344");
         reloaded.CustomerName.Should().Be("Ada Payer");
         reloaded.CustomerEmail.Should().Be("ada@x.com");
@@ -147,7 +147,7 @@ public class VirtualAccountServiceTests
         using var db = new TestDatabase();
         db.Tenant.TenantId = await SeedTenantAsync(db);
         await using var ctx = db.CreateContext();
-        var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("9011223344"));
+        var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("9011223344"), new FakeEmailSender());
 
         await svc.CreateAsync("del-ok", "No Pay", "a@x.com", null, null, null, null, testMode: true);
         await svc.CreateAsync("del-paid", "Has Pay", "b@x.com", null, null, null, null, testMode: true);
@@ -170,7 +170,7 @@ public class VirtualAccountServiceTests
         using var db = new TestDatabase();
         db.Tenant.TenantId = await SeedTenantAsync(db);
         await using var ctx = db.CreateContext();
-        var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("1234567890"));
+        var svc = new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient("1234567890"), new FakeEmailSender());
 
         var va = await svc.CreateAsync("test-1", "Sandbox Payer", null, null, null, null, null, testMode: true);
 
@@ -185,10 +185,10 @@ public class VirtualAccountServiceTests
         using var db = new TestDatabase();
         db.Tenant.TenantId = await SeedTenantAsync(db);
         await using (var ctx = db.CreateContext())
-            await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "A", null, null, null, null, null, testMode: false);
+            await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient(), new FakeEmailSender()).CreateAsync("dup", "A", null, null, null, null, null, testMode: false);
 
         await using var ctx2 = db.CreateContext();
-        var act = () => new VirtualAccountService(ctx2, db.Tenant, new FakeNombaClient()).CreateAsync("dup", "B", null, null, null, null, null, testMode: false);
+        var act = () => new VirtualAccountService(ctx2, db.Tenant, new FakeNombaClient(), new FakeEmailSender()).CreateAsync("dup", "B", null, null, null, null, null, testMode: false);
         await act.Should().ThrowAsync<ConflictException>();
     }
 
@@ -199,7 +199,7 @@ public class VirtualAccountServiceTests
         db.Tenant.TenantId = await SeedTenantAsync(db);
         await using var ctx = db.CreateContext();
 
-        var va = await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient())
+        var va = await new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient(), new FakeEmailSender())
             .CreateAsync(null, "Ada Payer", null, null, null, null, null, testMode: true);
 
         va.Reference.Should().StartWith("cust_").And.HaveLength("cust_".Length + 16);
@@ -215,7 +215,7 @@ public class VirtualAccountServiceTests
         await ctx.SaveChangesAsync();
         db.Tenant.TenantId = t.Id;
 
-        var act = () => new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient())
+        var act = () => new VirtualAccountService(ctx, db.Tenant, new FakeNombaClient(), new FakeEmailSender())
             .CreateAsync("ref-1", "Ada", null, null, null, null, null, testMode: true);
         await act.Should().ThrowAsync<EmailNotVerifiedException>();
     }

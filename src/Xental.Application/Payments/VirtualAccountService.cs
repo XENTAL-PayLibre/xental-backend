@@ -17,7 +17,8 @@ public sealed record VirtualAccountView(VirtualAccount Account, string? Customer
 public sealed class VirtualAccountService(
     IApplicationDbContext db,
     ITenantContext tenantContext,
-    INombaClient nomba)
+    INombaClient nomba,
+    IEmailSender mailer)
 {
     public async Task<VirtualAccount> CreateAsync(
         string? accountRef, string name, string? email, string? phone,
@@ -74,6 +75,14 @@ public sealed class VirtualAccountService(
         db.VirtualAccounts.Add(account);
 
         await db.SaveChangesAsync(ct);
+
+        // Best-effort: tell the customer where to pay + how much, sent under the merchant's brand.
+        if (!string.IsNullOrWhiteSpace(customer.Email))
+            await mailer.SendCustomerAccountDetailsAsync(
+                customer.Email!, tenant.DisplayBrand,
+                provisioned.AccountNumber, provisioned.BankName, provisioned.AccountName,
+                expectedAmountKobo, ct);
+
         return account;
     }
 

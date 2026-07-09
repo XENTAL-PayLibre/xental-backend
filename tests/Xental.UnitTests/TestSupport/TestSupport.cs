@@ -145,6 +145,25 @@ public sealed class FakeEmailSender : IEmailSender
         LastReminderOverdue = overdue;
         return Task.CompletedTask;
     }
+
+    public int OnboardingAlerts { get; private set; }
+    public int CustomerAccountEmails { get; private set; }
+    public string? LastCustomerEmailBusiness { get; private set; }
+
+    public Task SendOnboardingReviewAlertAsync(string toEmail, string track, string applicantName, CancellationToken ct = default)
+    {
+        OnboardingAlerts++;
+        return Task.CompletedTask;
+    }
+
+    public Task SendCustomerAccountDetailsAsync(
+        string toEmail, string businessName, string accountNumber, string bankName,
+        string accountName, long? expectedAmountKobo, CancellationToken ct = default)
+    {
+        CustomerAccountEmails++;
+        LastCustomerEmailBusiness = businessName;
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>Returns the raw token verbatim as the "link" so tests can consume it directly.</summary>

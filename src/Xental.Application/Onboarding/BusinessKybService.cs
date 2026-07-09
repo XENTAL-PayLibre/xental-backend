@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
+using Xental.Domain.Admin;
 using Xental.Domain.Common;
 using Xental.Domain.Onboarding;
 
@@ -23,7 +24,8 @@ public sealed class BusinessKybService(
     IIdentityVerifier identity,
     INombaClient nomba,
     IDocumentStorage storage,
-    IClock clock)
+    IClock clock,
+    IEmailSender mailer)
 {
     private const long MaxDocumentBytes = 10 * 1024 * 1024; // 10 MB
     private static readonly HashSet<string> AllowedContentTypes =
@@ -95,6 +97,14 @@ public sealed class BusinessKybService(
         var app = await GetOrCreateAppAsync(tenantId, ct);
         app.SubmitTrack(OnboardingTrack.BusinessKyb, now);
         await db.SaveChangesAsync(ct);
+
+        // Best-effort: alert every active admin that a KYB is awaiting review.
+        var adminEmails = await db.AdminUsers
+            .Where(a => a.Status == AdminStatus.Active)
+            .Select(a => a.Email)
+            .ToListAsync(ct);
+        foreach (var adminEmail in adminEmails)
+            await mailer.SendOnboardingReviewAlertAsync(adminEmail, "Business KYB", kyb.LegalName, ct);
     }
 
     private async Task RunCacCheckAsync(Guid tenantId, BusinessKybInput input, DateTimeOffset now, CancellationToken ct)

@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Xental.Application.Common.Exceptions;
 using Xental.Application.Common.Interfaces;
+using Xental.Domain.Admin;
 using Xental.Domain.Common;
 using Xental.Domain.Onboarding;
 
@@ -27,7 +28,8 @@ public sealed class DeveloperKycService(
     ISecretProtector protector,
     IIdentityVerifier identity,
     INombaClient nomba,
-    IClock clock)
+    IClock clock,
+    IEmailSender mailer)
 {
     public async Task SubmitAsync(DeveloperKycInput input, CancellationToken ct = default)
     {
@@ -54,6 +56,19 @@ public sealed class DeveloperKycService(
         app.SubmitTrack(OnboardingTrack.DeveloperKyc, now);
 
         await db.SaveChangesAsync(ct);
+
+        await NotifyAdminsAsync("Developer KYC", input.FullName.Trim(), ct);
+    }
+
+    /// <summary>Best-effort: email every active admin that a track was submitted for review.</summary>
+    private async Task NotifyAdminsAsync(string track, string applicantName, CancellationToken ct)
+    {
+        var adminEmails = await db.AdminUsers
+            .Where(a => a.Status == AdminStatus.Active)
+            .Select(a => a.Email)
+            .ToListAsync(ct);
+        foreach (var adminEmail in adminEmails)
+            await mailer.SendOnboardingReviewAlertAsync(adminEmail, track, applicantName, ct);
     }
 
     private async Task RunIdentityCheckAsync(Guid tenantId, DeveloperKycInput input, DateTimeOffset now, CancellationToken ct)

@@ -121,7 +121,7 @@ public class DeveloperKycServiceTests
         var idv = new FakeIdentityVerifier();
         var nomba = new FakeNombaClient();
         var prot = TestProtector.Create();
-        return (new DeveloperKycService(ctx, db.Tenant, prot, idv, nomba, db.Clock), idv, nomba, prot);
+        return (new DeveloperKycService(ctx, db.Tenant, prot, idv, nomba, db.Clock, new FakeEmailSender()), idv, nomba, prot);
     }
 
     [Fact]
@@ -220,7 +220,7 @@ public class BusinessKybServiceTests
         var idv = new FakeIdentityVerifier();
         var nomba = new FakeNombaClient();
         var store = new FakeDocumentStorage();
-        return (new BusinessKybService(ctx, db.Tenant, idv, nomba, store, db.Clock), idv, nomba, store);
+        return (new BusinessKybService(ctx, db.Tenant, idv, nomba, store, db.Clock, new FakeEmailSender()), idv, nomba, store);
     }
 
     private static Stream Pdf(int bytes = 1024) => new MemoryStream(new byte[bytes]);
