@@ -344,6 +344,19 @@ public sealed record InsightsResponse(
     int FullyPaidAccounts,
     int PartiallyPaidAccounts);
 
+// ---- Collections Intelligence (differentiator) ----
+public sealed record AgingBucketResponse(string Label, int Accounts, long OutstandingKobo);
+public sealed record AgingReportResponse(long TotalOutstandingKobo, IReadOnlyList<AgingBucketResponse> Buckets);
+
+public sealed record ForecastWeekResponse(DateTimeOffset WeekStartUtc, long ScheduledKobo);
+public sealed record CashFlowForecastResponse(
+    int Days, long ScheduledDueKobo, double DailyRunRateKobo,
+    long RunRateProjectedKobo, long ProjectedTotalKobo, IReadOnlyList<ForecastWeekResponse> Weeks);
+
+public sealed record CustomerScoreResponse(
+    string CustomerRef, string CustomerName, long ExpectedKobo, long PaidKobo, long OutstandingKobo,
+    double CollectionRatePct, int Deposits, int DuePeriods, int LatePeriods, int Score, string Rating);
+
 // ---- Live Checkout (differentiator) ----
 public sealed record CreateCheckoutSessionRequest(
     [Required] string AccountRef,
