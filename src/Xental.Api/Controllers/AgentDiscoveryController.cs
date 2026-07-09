@@ -60,9 +60,9 @@ public sealed class AgentDiscoveryController : ControllerBase
                            (dashboard plane)
 
         ## MCP (agent plane)
-        An MCP server (clients/xental-mcp) exposes the API-plane operations above as typed tools for
-        any MCP-capable agent (Claude Desktop, etc.) — provision accounts, watch transactions, run
-        payouts, and drive the sandbox with natural language.
+        An MCP server (https://github.com/XENTAL-PayLibre/xental-mcp) exposes the API-plane operations
+        above as typed tools for any MCP-capable agent (Claude Desktop, etc.) — provision accounts,
+        watch transactions, run payouts, and drive the sandbox with natural language.
 
         ## Conventions
         - All money is integer kobo (₦1 = 100 kobo). Never floats.
