@@ -56,6 +56,40 @@ public sealed class ResendEmailSender(
     public Task SendOperationalAlertAsync(string toEmail, string subject, string html, CancellationToken ct = default) =>
         SendAsync(toEmail, subject, html, ct);
 
+    public Task SendOnboardingReviewAlertAsync(string toEmail, string track, string applicantName, CancellationToken ct = default)
+    {
+        var safeTrack = System.Net.WebUtility.HtmlEncode(track);
+        var safeName = System.Net.WebUtility.HtmlEncode(applicantName);
+        return SendAsync(toEmail, $"New {track} submitted for review",
+            $"""
+             <p>A new <strong>{safeTrack}</strong> submission is awaiting review.</p>
+             <p>Applicant: <strong>{safeName}</strong></p>
+             <p>Sign in to the Xental admin console to review the details and approve or reject it.</p>
+             """, ct);
+    }
+
+    public Task SendCustomerAccountDetailsAsync(
+        string toEmail, string businessName, string accountNumber, string bankName,
+        string accountName, long? expectedAmountKobo, CancellationToken ct = default)
+    {
+        var safeBusiness = System.Net.WebUtility.HtmlEncode(businessName);
+        var amountLine = expectedAmountKobo is long k
+            ? $"<p>Amount to pay: <strong>₦{(k / 100m).ToString("N2")}</strong></p>"
+            : "";
+        // The sender display name is the merchant's business name (fromName); the address stays
+        // the verified Xental sender.
+        return SendAsync(toEmail, $"Your payment account with {businessName}",
+            $"""
+             <p><strong>{safeBusiness}</strong> has set up a dedicated account for your payments.</p>
+             <p>Pay by transferring to:</p>
+             <p>Account number: <strong>{System.Net.WebUtility.HtmlEncode(accountNumber)}</strong><br/>
+             Bank: <strong>{System.Net.WebUtility.HtmlEncode(bankName)}</strong><br/>
+             Account name: <strong>{System.Net.WebUtility.HtmlEncode(accountName)}</strong></p>
+             {amountLine}
+             <p>Your payment is applied automatically once it arrives.</p>
+             """, ct, fromName: businessName);
+    }
+
     public Task SendBillingReminderAsync(
         string toEmail, string brand, long amountKobo, DateTimeOffset dueDateUtc,
         string accountNumber, string bankName, bool overdue, CancellationToken ct = default)
@@ -80,7 +114,17 @@ public sealed class ResendEmailSender(
              """, ct);
     }
 
-    private async Task SendAsync(string toEmail, string subject, string html, CancellationToken ct)
+    /// <summary>Build the RFC5322 From value. An optional display name (e.g. the merchant's business
+    /// name) is prepended while the address stays the verified sender: <c>Name &lt;addr&gt;</c>.
+    /// The name is sanitised to prevent header injection.</summary>
+    private string From(string? fromName)
+    {
+        if (string.IsNullOrWhiteSpace(fromName)) return _options.FromEmail;
+        var clean = new string(fromName.Where(c => c is not ('"' or '<' or '>' or '\r' or '\n')).ToArray()).Trim();
+        return clean.Length == 0 ? _options.FromEmail : $"{clean} <{_options.FromEmail}>";
+    }
+
+    private async Task SendAsync(string toEmail, string subject, string html, CancellationToken ct, string? fromName = null)
     {
         if (!_options.IsConfigured)
         {
@@ -95,7 +139,7 @@ public sealed class ResendEmailSender(
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
             request.Content = JsonContent.Create(new
             {
-                from = _options.FromEmail,
+                from = From(fromName),
                 to = new[] { toEmail },
                 subject,
                 html,

@@ -53,6 +53,14 @@ internal sealed class FakeEmailSender : IEmailSender
         string accountNumber, string bankName, bool overdue, CancellationToken ct = default) =>
         Task.CompletedTask;
 
+    public Task SendOnboardingReviewAlertAsync(string toEmail, string track, string applicantName, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
+    public Task SendCustomerAccountDetailsAsync(
+        string toEmail, string businessName, string accountNumber, string bankName,
+        string accountName, long? expectedAmountKobo, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
     public static string? VerificationTokenFor(string email) =>
         Verify.TryGetValue(email, out var link) ? TokenFromLink(link) : null;
 
