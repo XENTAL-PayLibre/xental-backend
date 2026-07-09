@@ -48,6 +48,21 @@ public sealed class AgentDiscoveryController : ControllerBase
         - Live Checkout:   POST /api/v1/checkout/sessions  ->  GET /api/v1/checkout/{token}/stream (SSE)
         - Split & Escrow:  PUT  /api/v1/settings/splits ; POST /api/v1/settlements/{ref}/hold|release
         - Money Rules:     GET/POST/DELETE /api/v1/rules   (overpaid->hold, high-risk->hold, notify)
+        - Payment Flows:   GET/POST/PUT/DELETE /api/v1/flows ; GET /api/v1/flows/runs
+                           Multi-step automation on reconciled deposits: trigger (deposit/overpaid/
+                           underpaid/fully-paid/high-risk) + conditions -> ordered actions
+                           (hold/release/notify/review-flag), with an audit trail. (dashboard plane)
+        - Collections Intelligence: GET /api/v1/insights[/aging|/forecast|/customers]
+                           Receivables aging, a cash-flow forecast, and per-customer collection
+                           scores (0-100). (dashboard plane)
+        - Copilot:         POST /api/v1/copilot/ask {prompt}
+                           A grounded, natural-language assistant over your live account data.
+                           (dashboard plane)
+
+        ## MCP (agent plane)
+        An MCP server (clients/xental-mcp) exposes the API-plane operations above as typed tools for
+        any MCP-capable agent (Claude Desktop, etc.) — provision accounts, watch transactions, run
+        payouts, and drive the sandbox with natural language.
 
         ## Conventions
         - All money is integer kobo (₦1 = 100 kobo). Never floats.
