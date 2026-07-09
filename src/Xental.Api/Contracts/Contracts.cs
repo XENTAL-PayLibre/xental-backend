@@ -357,6 +357,9 @@ public sealed record CustomerScoreResponse(
     string CustomerRef, string CustomerName, long ExpectedKobo, long PaidKobo, long OutstandingKobo,
     double CollectionRatePct, int Deposits, int DuePeriods, int LatePeriods, int Score, string Rating);
 
+// ---- Copilot (agent plane) ----
+public sealed record CopilotAskRequest([Required, StringLength(500, MinimumLength = 1)] string Prompt);
+
 // ---- Live Checkout (differentiator) ----
 public sealed record CreateCheckoutSessionRequest(
     [Required] string AccountRef,
